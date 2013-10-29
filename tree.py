@@ -28,14 +28,51 @@ class CartTree(object):
     def __init__(self, X, y, min_samples_leaf=5):
         self.X = X
         self.y = y
-        self.n_features = X.shape[0]
-        self.n_samples  = X.shape[1]
+        self.n_features = X.shape[1]
+        self.n_samples  = X.shape[0]
         self.min_samples_leaf = min_samples_leaf
         self.head = Node(None, None)
 
         self.terminalNodes = [self.head,]
         self.internalNodes = []
 
+
+    def buildUniformly(self, node, alpha=0.95, beta=1.0, depth=0):
+        print node, depth
+        psplit = alpha * (1 + depth)**-beta
+        rand   = np.random.random()
+        if rand < psplit:
+            feature = np.random.randint(self.n_features)
+            idxX, idxY = self.filter(node)
+            data = self.X[:, feature][idxX[:, feature]]
+            minval = np.min(data)
+            maxval = np.max(data)
+            threshold = np.random.random() * (maxval - minval) + minval
+            nleft, nright = self.split(node, feature, threshold)
+            self.buildUniformly(nleft, depth=depth+1)
+            self.buildUniformly(nright, depth=depth+1)
+
+    def trim(self, nmin=2):
+        # Get rid of terminal nodes with no data
+        #
+        # Tricky, note that the terminal nodes change after every
+        # trim.  Need to make this recursive somehow.
+        return
+
+        totrim = []
+        for node in self.terminalNodes:
+            fx, fy = self.filter(node)
+            if len(np.where(fy == True)[0]) < nmin:
+                totrim.append(node)
+        for node in totrim:
+            print " TRIMMING NODE", node.Id
+            parent = node.Parent
+            parent.Left = None
+            parent.Reft = None
+            del node
+            self.calcTerminalNodes() # shoot, resizes terminal nodes
+            self.calcInternalNodes()
+        
     # GROW step: randomly pick a terminal node and split into 2 new
     # ones by randomly assigning a splitting rule.  
     #
@@ -70,6 +107,7 @@ class CartTree(object):
         self.calcInternalNodes()
         return parent
 
+
     # CHANGE step: randomly pick an internal node and randomly assign
     # it a splitting rule.  
     def change(self, feature, threshold):
@@ -77,6 +115,7 @@ class CartTree(object):
         rnode = nodes[np.random.randint(len(nodes))]
         rnode.setThreshold(feature, threshold)
         return rnode
+
 
     # SWAP step: randomly pick a parent-child pair that are both
     # internal nodes.  Swap their splitting rules unless the other
@@ -150,17 +189,20 @@ class CartTree(object):
         if node.Left is not None:
             self.calcInternalNodes_(node.Left)
             
+    # Filter the data that end up in each (terminal) node; return
+    # their mean value.
     def filter(self, node):
-        include = np.ones(self.y.shape, dtype=np.bool)
+        includeX = np.ones(self.X.shape, dtype=np.bool)
         n = node
         while n.Parent is not None:
             if n.is_left:
-                include &= self.X[:,n.Parent.feature] <=  n.Parent.threshold
+                includeX[:,n.Parent.feature] &= self.X[:,n.Parent.feature] <=  n.Parent.threshold
             else:
-                include &= self.X[:,n.Parent.feature] >   n.Parent.threshold
+                includeX[:,n.Parent.feature] &= self.X[:,n.Parent.feature] >   n.Parent.threshold
             n = n.Parent
-        return np.mean(self.y[include])
-            
+        includeY = np.all(includeX, axis=1)
+        return includeX, includeY
+
 class Node(object):
     NodeId = 0
 
@@ -186,14 +228,17 @@ class Node(object):
         self.threshold = threshold
 
 if __name__ == "__main__":
-    nsamples  = 100
-    nfeatures = 10
+    nsamples  = 10
+    nfeatures = 2
     X    = np.random.random((nsamples, nfeatures)) - 0.5
     y    = np.random.random((nsamples)) - 0.5
     tree = CartTree(X, y)
-    tree.split(tree.head, 1, 0.0)
-    tree.split(tree.head.Left, 2, 0.1)
-    tree.split(tree.head.Left.Right, 3, -0.1)
+    tree.buildUniformly(tree.head)
+    tree.trim()
+
+    #tree.split(tree.head, 0, 0.0)
+    #tree.split(tree.head.Left, 1, 0.1)
+    #tree.split(tree.head.Left.Right, 1, -0.1)
     tree.printTree(tree.head)
 
     print "Terminal", [x.Id for x in tree.terminalNodes]
