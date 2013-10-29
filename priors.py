@@ -27,7 +27,7 @@ class Prior(object):
         """
         self.temperature = temperature
 
-    def LogDensity(self, value):
+    def logdensity(self, value):
         """
         The logarithm of the prior distribution evaluated at the input value.
 
@@ -35,7 +35,7 @@ class Prior(object):
         """
         return 0.0
 
-    def Draw(self):
+    def draw(self):
         """
         Return a random draw from the prior distribution.
         """
@@ -48,7 +48,7 @@ class Uninformative(Prior):
     values of the parameter. The Draw() method is undefined for this class and should not be used.
     """
 
-    def LogDensity(self, value):
+    def logdensity(self, value):
         return 0.0
 
 
@@ -70,10 +70,10 @@ class Normal(Prior):
         self.variance = variance
         self.sigma = np.sqrt(variance)
 
-    def LogDensity(self, value):
+    def logdensity(self, value):
         return stats.norm.logpdf(value, loc=self.mu, scale=self.sigma)
 
-    def Draw(self):
+    def draw(self):
         return stats.norm.rvs(loc=self.mu, scale=self.sigma)
 
 
@@ -96,9 +96,9 @@ class ScaledInvChiSqr(Prior):
         self.dof = dof
         self.ssqr = ssqr
 
-    def LogDensity(self, value):
+    def logdensity(self, value):
         assert value > 0
         return stats.invgamma.logpdf(value, self.dof / 2.0, scale=self.dof * self.ssqr / 2.0)
 
-    def Draw(self):
+    def draw(self):
         return stats.invgamma.rvs(self.dof / 2.0, scale=self.dof * self.ssqr / 2.0)

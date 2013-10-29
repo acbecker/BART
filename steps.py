@@ -158,7 +158,7 @@ class MetroStep(Step):
         return unif < self._alpha
 
     def DoStep(self):
-        proposed_value = self._proposal.Draw(self._parameter.value)
+        proposed_value = self._proposal.draw(self._parameter.value)
 
         if self.Accept(proposed_value, self._parameter.value):
             self._parameter.value = proposed_value
@@ -237,13 +237,13 @@ class AdaptiveMetro(MetroStep):
         # First draw the unit proposal
         if np.isscalar(self._parameter.value):
             # Parameter is scalar-valued, need to handle this case separately
-            unit_proposal = self._proposal.Draw(0.0)
+            unit_proposal = self._proposal.draw(0.0)
             centered_proposal = self._cholesky_factor * unit_proposal
             # Rescale the unit proposal to a proposed parameter value
             proposed_value = self._parameter.value + centered_proposal
         else:
             # Parameter is array (vector) valued, so use linear algebra operations
-            unit_proposal = self._proposal.Draw(np.zeros(self._parameter.value.size))
+            unit_proposal = self._proposal.draw(np.zeros(self._parameter.value.size))
             # Transform the unit proposal to a proposed value through scaling and translation
             centered_proposal = np.transpose(self._cholesky_factor).dot(unit_proposal)
             proposed_value = self._parameter.value + centered_proposal

@@ -16,7 +16,7 @@ class Proposal(object):
     class. The methods of Proposal should be overridden in the derived classes.
     """
 
-    def Draw(self, current_value):
+    def draw(self, current_value):
         """
         Method to generate a proposal given the current value of the parameter.
 
@@ -24,7 +24,7 @@ class Proposal(object):
         """
         pass
 
-    def LogDensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value):
         """
         Method to return the logarithm of the probability of going from the current value to the proposed value
         of the parameter.
@@ -48,11 +48,11 @@ class NormalProposal(Proposal):
         """
         self.sigma = sigma
 
-    def Draw(self, current_value):
+    def draw(self, current_value):
         proposed_value = np.random.normal(current_value, self.sigma)
         return proposed_value
 
-    def LogDensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value):
         return 0.0  # Symmetric proposal, so just return zero.
 
 
@@ -69,11 +69,11 @@ class MultiNormalProposal(Proposal):
         """
         self.covar = covar
 
-    def Draw(self, current_value):
+    def draw(self, current_value):
         proposed_value = np.random.multivariate_normal(current_value, self.covar)
         return proposed_value
 
-    def LogDensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value):
         return 0.0  # Symmetric proposal, so returned value doesn't matter.
 
 
@@ -90,12 +90,12 @@ class LogNormalProposal(Proposal):
         """
         self.scale = scale
 
-    def Draw(self, current_value):
+    def draw(self, current_value):
         assert current_value > 0  # Make sure values are positive
         proposed_value = np.random.lognormal(math.log(current_value), self.scale)
         return proposed_value
 
-    def LogDensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value):
         assert current_value > 0  # Make sure values are positive
         assert proposed_value > 0
         chi = (math.log(proposed_value) - math.log(current_value)) / self.scale
@@ -118,11 +118,11 @@ class StudentProposal(Proposal):
         self.dof = dof
         self.scale = scale
 
-    def Draw(self, current_value):
+    def draw(self, current_value):
         proposed_value = current_value + self.scale * np.random.standard_t(self.dof)
         return proposed_value
 
-    def LogDensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value):
         return 0.0  # Symmetric proposal, so returned value does not matter.
 
 
