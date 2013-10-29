@@ -41,7 +41,7 @@ VarGibbs = steps.GibbStep(NormVar)
 NormSamples = samplers.MCMCSample()
 nsamples = 20000
 burnin = 20000  # Do 5000 iterations of burn-in
-NormSampler = samplers.Sampler(NormSamples, nsamples, burnin)
+NormSampler = samplers.Sampler()
 
 ###### Construct a bivariate normal model. This will test vector versions of the sampler class methods.
 # First create some data

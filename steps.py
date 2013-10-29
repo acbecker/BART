@@ -11,7 +11,7 @@ __author__ = 'Brandon C. Kelly'
 
 import numpy as np
 import math
-from misc import CholUpdateR1
+from misc import cholupdate_r1
 from scipy.linalg import cholesky
 
 
@@ -231,7 +231,7 @@ class AdaptiveMetro(MetroStep):
             downdate = self._alpha < self.target_rate
 
             # Perform the rank-1 update (or downdate) of the scale matrix cholesky factor
-            CholUpdateR1(self._cholesky_factor, scaled_proposal, downdate)
+            cholupdate_r1(self._cholesky_factor, scaled_proposal, downdate)
 
     def do_step(self):
         # First draw the unit proposal
