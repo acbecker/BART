@@ -38,7 +38,7 @@ class MCMCSample(object):
             # Construct MCMCSample object by reading in MCMC samples from an asciifile.
             self.generate_from_file(filename)
 
-    def addparameter(self, name, values_array):
+    def add_parameter(self, name, values_array):
         """
         Add an array of parameter values to the dictionary of samples.
 
@@ -331,7 +331,7 @@ class Sampler(object):
 
         self._mcmc_samples = mcmc_samples  # MCMCSample class object. This is where the sampled values are stored.
 
-    def AddStep(self, step):
+    def add_step(self, step):
         """
         Method to add a step object to the sampler. The sampler will iterate over the step objects, calling their
         Draw() method once per iteration. This method will also initialize the parameter value associated with this
@@ -340,7 +340,7 @@ class Sampler(object):
         self._steps.append(step)
 
         # Set initial value of parameter associated with this step.
-        step._parameter.SetStartingValue()
+        step._parameter.set_starting_value()
 
         if step._parameter.track:
             # We are saving this parameter's values, so add to dictionary of samples.
@@ -354,9 +354,9 @@ class Sampler(object):
                 # Get numpy array that will store the samples values for this parameter
                 value_array = np.empty(trace_shape)
                 # Add the array that will hold the sampled parameter values to the dictionary of samples.
-            self._mcmc_samples.addparameter(step._parameter.name, value_array)
+            self._mcmc_samples.add_parameter(step._parameter.name, value_array)
 
-    def Iterate(self, niter, burnin_stage=True):
+    def iterate(self, niter, burnin_stage=True):
         """
         Method to perform niter iterations of the sampler.
 
@@ -365,13 +365,13 @@ class Sampler(object):
         """
         for i in xrange(niter):
             for step in self._steps:
-                step.DoStep()
+                step.do_step()
 
             if burnin_stage:
                 # Update the burn-in progress bar
                 self._burnin_bar.update(i + 1)
 
-    def SaveValues(self):
+    def save_values(self):
         """
         Save the parameter values. These values are saved in a dictionary of numpy arrays, indexed according to the
         parameter names. The dictionary of samples is accessed as Sampler.samples.
@@ -386,7 +386,7 @@ class Sampler(object):
                 # Have a vector- or matrix-valued parameter
                 self._mcmc_samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
 
-    def Run(self):
+    def run(self):
         """
         Run the sampler.
         """
@@ -397,7 +397,7 @@ class Sampler(object):
         # First do burn-in stage
         print "Doing burn-in stage first..."
         self._burnin_bar.start()
-        self.Iterate(self.burnin)  # Perform the burn-in iterations
+        self.iterate(self.burnin)  # Perform the burn-in iterations
 
         # Now run the sampler.
         print "Sampling..."
@@ -407,19 +407,19 @@ class Sampler(object):
             if self.thin == 1:
                 # No thinning is performed, so don't waste time calling self.Iterate.
                 for step in self._steps:
-                    step.DoStep()
+                    step.do_step()
 
             else:
                 # Need to thin the samples, so do thin iterations.
-                self.Iterate(self.thin, burnin_stage=False)
+                self.iterate(self.thin, burnin_stage=False)
 
             # Now save the tracked parameter values to the samples dictionary object
-            self.SaveValues()
+            self.save_values()
 
             self._sampler_bar.update(i + 1)  # Update the progress bar
 
 
-    def Restart(self, sample_size, thin=1):
+    def restart(self, sample_size, thin=1):
         """
         Restart the MCMC sampler at the current value. No burn-in stage will be performed.
         """

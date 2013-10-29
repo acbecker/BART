@@ -8,7 +8,7 @@ from numba import double, jit, void, b1
 
 
 @jit(void(double[:, :], double[:], b1))
-def cholupdate_r1(L, v, downdate=False):
+def cholupdate_r1(L, v, downdate):
     """
     Perform the rank-1 Cholesky update (or downdate). Suppose we have the Cholesky decomposition for a matrix, A.
     The rank-1 update computes the Cholesky decomposition of a new matrix B, where B = A + v * v.transpose(). The

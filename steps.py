@@ -36,16 +36,16 @@ class Parameter(object):
         self.track = track
         self._temperature = temperature
         self._log_posterior = 0.0
-        self.SetStartingValue()
+        self.set_starting_value()
 
-    def SetStartingValue(self):
+    def set_starting_value(self):
         """
         Method to generate starting values for the parameter. This is empty and must be overridden by the
         derived class.
         """
         self.value = 0.0
 
-    def LogDensity(self, value):
+    def logdensity(self, value):
         """
         Method to compute the logarithm of the posterior, given the input parameter value. This
         method does not need to be defined when using the Gibbs sampler.
@@ -54,7 +54,7 @@ class Parameter(object):
         """
         return 0.0
 
-    def RandomPosterior(self):
+    def random_posterior(self):
         """
         Method to generate a random draw of the parameter from its posterior distribution. This
         method is used by the Gibbs step and must be defined when employing a Gibbs sampler.
@@ -78,7 +78,7 @@ class Step(object):
         """
         self._parameter = parameter
 
-    def DoStep(self):
+    def do_step(self):
         """
         Method to perform the MCMC step.
         """
@@ -95,8 +95,8 @@ class GibbStep(Step):
     def __init__(self, parameter):
         Step.__init__(self, parameter)
 
-    def DoStep(self):
-        self._parameter.value = self._parameter.RandomPosterior()
+    def do_step(self):
+        self._parameter.value = self._parameter.random_posterior()
 
 
 class MetroStep(Step):
@@ -124,16 +124,16 @@ class MetroStep(Step):
         self.niter = 0
         self._alpha = 0.0
         # Set starting value of log-posterior
-        self._parameter._log_posterior = self._parameter.LogDensity(self._parameter.value)
+        self._parameter._log_posterior = self._parameter.logdensity(self._parameter.value)
 
-    def Report(self):
+    def report(self):
         """
         Method to report the average acceptance rates since the beginning of the sampler.
         """
         arate = float(self.naccept) / self.niter
         print 'Average acceptance rate is:', arate
 
-    def Accept(self, proposed_value, current_value):
+    def accept(self, proposed_value, current_value):
         """
         Method to generate a boolean random variable describing whether the proposed parameter value
         is accepted.
@@ -143,8 +143,8 @@ class MetroStep(Step):
         """
 
         ## Accept the proposed value with min(1.0, exp(alpha)).
-        alpha = self._parameter.LogDensity(proposed_value) - self._proposal.LogDensity(current_value, proposed_value) \
-            - (self._parameter._log_posterior - self._proposal.LogDensity(proposed_value, current_value))
+        alpha = self._parameter.logdensity(proposed_value) - self._proposal.logdensity(current_value, proposed_value) \
+            - (self._parameter._log_posterior - self._proposal.logdensity(proposed_value, current_value))
 
         self._alpha = min(1.0, math.exp(alpha))
 
@@ -157,18 +157,18 @@ class MetroStep(Step):
 
         return unif < self._alpha
 
-    def DoStep(self):
+    def do_step(self):
         proposed_value = self._proposal.draw(self._parameter.value)
 
-        if self.Accept(proposed_value, self._parameter.value):
+        if self.accept(proposed_value, self._parameter.value):
             self._parameter.value = proposed_value
-            self._parameter._log_posterior = self._parameter.LogDensity(proposed_value)
+            self._parameter._log_posterior = self._parameter.logdensity(proposed_value)
             self.naccept += 1
 
         self.niter += 1
 
         if self.niter == self.report_iter:
-            self.Report()
+            self.report()
 
 
 class AdaptiveMetro(MetroStep):
@@ -204,7 +204,7 @@ class AdaptiveMetro(MetroStep):
         else:
             self._cholesky_factor = cholesky(covar)  # Cholesky factor is upper triangular, needed for the rank 1 update
 
-    def UpdateCovar(self, proposed_value, unit_proposal, centered_proposal):
+    def update_covar(self, proposed_value, unit_proposal, centered_proposal):
         """
         Method to update the covariance matrix (actually, its Cholesky decomposition), based on the
         proposed value and the value of the unit proposal.
@@ -231,9 +231,9 @@ class AdaptiveMetro(MetroStep):
             downdate = self._alpha < self.target_rate
 
             # Perform the rank-1 update (or downdate) of the scale matrix cholesky factor
-            CholUpdateR1(self._cholesky_factor, scaled_proposal, downdate=downdate)
+            CholUpdateR1(self._cholesky_factor, scaled_proposal, downdate)
 
-    def DoStep(self):
+    def do_step(self):
         # First draw the unit proposal
         if np.isscalar(self._parameter.value):
             # Parameter is scalar-valued, need to handle this case separately
@@ -249,18 +249,18 @@ class AdaptiveMetro(MetroStep):
             proposed_value = self._parameter.value + centered_proposal
 
         # Accept this proposal?
-        if self.Accept(proposed_value, self._parameter.value):
+        if self.accept(proposed_value, self._parameter.value):
             # Proposal is accepted, update the parameter value
             self._parameter.value = proposed_value
-            self._parameter._log_posterior = self._parameter.LogDensity(proposed_value)
+            self._parameter._log_posterior = self._parameter.logdensity(proposed_value)
             self.naccept += 1
 
         if (self.niter < self._maxiter) & (np.isfinite(self._alpha)):
             # Update the scale matrix of the proposals
-            self.UpdateCovar(proposed_value, unit_proposal, centered_proposal)
+            self.update_covar(proposed_value, unit_proposal, centered_proposal)
 
         self.niter += 1
 
         if self.niter == self.report_iter:
             # Report on progress
-            self.Report()
+            self.report()
