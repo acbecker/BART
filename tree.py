@@ -2,10 +2,8 @@ import numpy as np
 import collections
 
 class CartProposal(object):
-    def __init__(self, tree, alpha=0.95, beta=1.0):
+    def __init__(self, tree):
         self.tree = tree
-        self.alpha = alpha
-        self.beta = beta
 
     def __call__(self):
         prop = np.random.random()
