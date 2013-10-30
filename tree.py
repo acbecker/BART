@@ -19,6 +19,24 @@ class BaseTree(object):
         self.terminalNodes = [self.head,]
         self.internalNodes = []
 
+    def buildUniform(self, node, alpha, beta, depth=0):
+        psplit = alpha * (1 + depth)**-beta
+        rand   = np.random.uniform()
+        if rand < psplit:
+            feature, threshold = self.prule(node)
+            if feature is None or threshold is None:
+                print "NO DATA LEFT, rejecting split"
+                return
+            nleft, nright = self.split(node, feature, threshold)
+            if nleft is not None and nright is not None:
+                print "EXTENDING node", node.Id, "to depth", depth+1
+                self.buildUniform(nleft, alpha, beta, depth=depth+1)
+                self.buildUniform(nright, alpha, beta, depth=depth+1)
+            else:
+                print "NOT EXTENDING node", node.Id, ": too few points"
+        else:
+            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
+            
     def prule(self, node):
         """Implement a uniform draw from the features to split on, and
         then choose the split value uniformly from the set of
@@ -218,18 +236,53 @@ class BartProposal(object):
 
 class BartTree(BaseTree):
     def __init__(self, X, y):
-        BaseTree.__init__(self, X, y)
+        BaseTree.__init__(self, X, y, alpha, beta)
+        self.k     = 2    # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
 
-        # rescale y to lie between -0.5 and 0.5
+        # Note, these should be tuned based on the data.  Algorithm
+        # looks like:
+        sigma1    = np.std(self.y)
+        regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
+        fit       = regressor.fit(X, y)
+        sigma2    = np.mean(fit.predict(X) - y)
+        # These values of sigma1, sigma2 should be used to predict nu
+        # and q.
+        self.nu    = 3.0  # Shoudl always be > 3
+        self.q     = 0.90 # Moves prior mode smaller as this increases
+
+
+        self.buildUniform(self.head, alpha, beta)
+
+class BartTrees(object):
+    def __init__(self, X, y, m=200, alpha=0.95, beta=2.0):
+        self.X = X
+        self.y = y
+        self.n_features = X.shape[1]
+        self.n_samples  = X.shape[0]
+
+        # Hyperparameters for growing the trees.  Keep them more
+        # compact than CART since there are more of them
+        self.alpha = alpha
+        self.beta = beta
+
+        # Rescale y to lie between -0.5 and 0.5
         self.y += np.min(self.y) # minimum = 0
         self.y /= np.max(self.y) # maximum = 1
         self.y -= 0.5            # range is -0.5 to 0.5
 
-        self.k     = 2
-        self.nu    = 3.0
-        self.q     = 0.90
-        self.m     = 200    # number of trees
+        self.m = m               # number of trees
+        self.trees = []
+        for m in range(self.m):
+            self.trees.append(BartTree(self.X, self.y))
 
+    def regressionLnlike(self):
+        prop = BartProposal()
+        lnlikes = []
+        for m in range(self.m):
+            tree = trees[m]
+            prop(tree) # Modify tree
+            lnlikes.append(tree.regressionLnlike())
+            
 ####
 #################
 ####
@@ -278,24 +331,6 @@ class CartTree(BaseTree):
         # Build the tree
         self.buildUniform(self.head, alpha, beta)
 
-    def buildUniform(self, node, alpha, beta, depth=0):
-        psplit = alpha * (1 + depth)**-beta
-        rand   = np.random.uniform()
-        if rand < psplit:
-            feature, threshold = self.prule(node)
-            if feature is None or threshold is None:
-                print "NO DATA LEFT, rejecting split"
-                return
-            nleft, nright = self.split(node, feature, threshold)
-            if nleft is not None and nright is not None:
-                print "EXTENDING node", node.Id, "to depth", depth+1
-                self.buildUniform(nleft, alpha, beta, depth=depth+1)
-                self.buildUniform(nright, alpha, beta, depth=depth+1)
-            else:
-                print "NOT EXTENDING node", node.Id, ": too few points"
-        else:
-            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
-            
     def regressionLnlike(self):
         lnlike = 0.0
 
