@@ -303,11 +303,23 @@ class CartTree(BaseTree):
         logprior = 0.0
         # first get prior for terminal nodes
         for node in tree.terminalNodes:
-            logprior += np.log(1.0 - self.alpha / (1.0 + depth) ** self.beta)
+            # probability of not splitting
+            logprior += np.log(1.0 - self.alpha / (1.0 + node.find_depth()) ** self.beta)
 
+        # now get contribution from interior nodes
+        for node in tree.internalNodes:
+            # probability of splitting this node
+            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.find_depth())
+
+            # get number of features and data points that are available for the splitting rule
             fxl, fyl = tree.filter(node)
+            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
             npts = np.sum(fyl)
-            nfeatures = np.sum(fxl, axis=0)
+            # probability of split is discrete uniform over set of available features and data points
+            logprior += -np.log(nfeatures) - np.log(npts)
+
+        return logprior
+
 
     # NOTE: This part would likely benefit from numba or cython
     def loglik(self, tree):
