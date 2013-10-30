@@ -276,8 +276,11 @@ class CartTree(BaseTree, steps.Parameter):
         self.alpha = alpha
         self.beta = beta
 
-        # Build the tree
-        self.buildUniform(self.head, alpha, beta)
+    def set_starting_value(self):
+        """
+        Set the initial configuration of the tree, just draw from its prior distribution.
+        """
+        self.buildUniform(self.head, self.alpha, self.beta)
 
     def buildUniform(self, node, alpha, beta, depth=0):
         psplit = alpha * (1 + depth)**-beta
