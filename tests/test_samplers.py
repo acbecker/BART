@@ -154,10 +154,11 @@ def test_normal_mean_mha():
     plt.ylabel("Posterior PDF")
     plt.xlabel("$\mu$")
     plt.show()
+    plt.close()
 
     # Summarize and plot the posterior
     MuSamples.posterior_summaries(NormMean.name)
-    MuSamples.plot_parameter(NormMean.name)
+    MuSamples.plot_parameter(NormMean.name, doShow=True)
 
     # Test that the moments of the MCMC samples are within 3sigma and 5% of their theoretical values
     neffective = MuSamples.effective_samples(NormMean.name)  # Effective number of independent samples
@@ -176,12 +177,10 @@ def test_normal_mean_ram():
     target_rate = 0.45
     MuRAM = steps.AdaptiveMetro(NormMean, NormProp, np.sqrt(var / ndata), target_rate, burnin, report_iter=burnin)
 
-    MuSamples = samplers.MCMCSample()
-    MuSampler = samplers.Sampler(MuSamples, nsamples, burnin)
+    MuSampler = samplers.Sampler([MuRAM])
 
-    MuSampler.add_step(MuRAM)
-
-    MuSampler.run()
+    MuSamples = MuSampler.run(burnin, nsamples)
+    MuSamples.newaxis()
 
     # Make sure acceptance rate is within 2% of the target rate, since we did not test this for scalar-valued parameters
     # in test_AdaptiveMetro().
@@ -199,15 +198,18 @@ def test_normal_mean_ram():
     plt.ylabel("Posterior PDF")
     plt.xlabel("$\mu$")
     plt.show()
+    plt.close()
 
     # Summarize and plot the posterior
     MuSamples.posterior_summaries(NormMean.name)
-    MuSamples.plot_parameter(NormMean.name)
+    MuSamples.plot_parameter(NormMean.name, doShow=True)
 
     # Test that the moments of the MCMC samples are within 3sigma and 5% of their theoretical values
     neffective = MuSamples.effective_samples(NormMean.name)  # Effective number of independent samples
     assert np.abs(np.mean(trace) - data.mean()) < 3.0 * np.std(trace)
     assert np.abs(np.std(trace) - np.sqrt(var / ndata)) * np.sqrt(ndata / var) < 0.05
+
+    print 'Test of RAM algorithm for scalar-valued parameter was successful.'
 
 
 def test_normal_model_ram():
@@ -353,3 +355,4 @@ if __name__ == "__main__":
     test_addstep()
     test_savevalues()
     test_normal_mean_mha()
+    test_normal_mean_ram()
