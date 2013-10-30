@@ -2,6 +2,7 @@ import numpy as np
 import collections
 import scipy.stats as stats
 from scipy.special import gammaln
+import steps
 
 ####
 #################
@@ -254,17 +255,15 @@ class CartProposal(object):
             tree.swap()
         
 
-class CartTree(BaseTree):
+class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
     # vector of predictors.  Each terminal node has parameter Theta.
     # 
     # y|X has distribution f(y|Theta).
 
-    def __init__(self, X, y, 
-                 nu, lamb, mubar, a, 
-                 alpha=0.95, beta=1.0,
-                 min_samples_leaf=5):
+    def __init__(self, X, y, nu, lamb, mubar, a, name, track=True, alpha=0.95, beta=1.0, min_samples_leaf=5):
         BaseTree.__init__(self, X, y)
+        steps.Parameter.__init__(name, track)
 
         # How big of a tree do we want to make
         self.nmin = min_samples_leaf
@@ -299,7 +298,13 @@ class CartTree(BaseTree):
             print "NOT SPLITTING node", node.Id, ": did not pass random draw"
 
     def logprior(self, tree):
+        """
+        Compute the log-prior for a proposed tree model. This assumes that the only difference between the input
+        tree and self is in the structure of the tree nodes. The prior distribution is assumed to be the same.
 
+        @param tree: The proposed tree.
+        @return: The log-prior density of tree.
+        """
         logprior = 0.0
         # first get prior for terminal nodes
         for node in tree.terminalNodes:
@@ -319,7 +324,6 @@ class CartTree(BaseTree):
             logprior += -np.log(nfeatures) - np.log(npts)
 
         return logprior
-
 
     # NOTE: This part would likely benefit from numba or cython
     def loglik(self, tree):
@@ -359,6 +363,12 @@ class CartTree(BaseTree):
             #print npts, ymean, yvar, lnlike
 
         return lnlike
+
+    def logdensity(self, tree):
+        logprior = self.logprior(tree)
+        loglik = self.loglik(tree)
+        return loglik + logprior
+
 
 class Node(object):
     NodeId = 0
