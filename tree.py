@@ -2,6 +2,7 @@ import numpy as np
 import collections
 import scipy.stats as stats
 from scipy.special import gammaln
+import steps
 
 ####
 #################
@@ -322,29 +323,67 @@ class CartProposal(object):
             tree.swap()
         
 
-class CartTree(BaseTree):
+class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
     # vector of predictors.  Each terminal node has parameter Theta.
     # 
     # y|X has distribution f(y|Theta).
 
-    def __init__(self, X, y, 
-                 nu, lamb, mubar, a, 
-                 alpha=0.95, beta=1.0,
-                 min_samples_leaf=5):
+    def __init__(self, X, y, nu, lamb, mubar, a, name, track=True, alpha=0.95, beta=1.0, min_samples_leaf=5):
         BaseTree.__init__(self, X, y, min_samples_leaf)
+        steps.Parameter.__init__(name, track)
 
         # Tuning parameters of the model
         self.nu    = nu
         self.lamb  = lamb
         self.mubar = mubar
         self.a     = a
+        self.alpha = alpha
+        self.beta = beta
 
-        # Build the tree
-        self.buildUniform(self.head, alpha, beta)
+    def set_starting_value(self):
+        """
+        Set the initial configuration of the tree, just draw from its prior distribution.
+        """
+        self.buildUniform(self.head, self.alpha, self.beta)
+
+    def logprior(self, tree):
+        """
+        Compute the log-prior for a proposed tree model. This assumes that the only difference between the input
+        tree and self is in the structure of the tree nodes. The prior distribution is assumed to be the same.
+
+        @param tree: The proposed tree.
+        @return: The log-prior density of tree.
+        """
+        logprior = 0.0
+        # first get prior for terminal nodes
+        for node in tree.terminalNodes:
+            # probability of not splitting
+            logprior += np.log(1.0 - self.alpha / (1.0 + node.find_depth()) ** self.beta)
+
+        # now get contribution from interior nodes
+        for node in tree.internalNodes:
+            # probability of splitting this node
+            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.find_depth())
+
+            # get number of features and data points that are available for the splitting rule
+            fxl, fyl = tree.filter(node)
+            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
+            npts = np.sum(fyl)
+            # probability of split is discrete uniform over set of available features and data points
+            logprior += -np.log(nfeatures) - np.log(npts)
+
+        return logprior
 
     # NOTE: This part would likely benefit from numba or cython
-    def regressionLnlike(self):
+    def loglik(self, tree):
+        """
+        Compute the log-likelihood for a proposed tree model. This assumes that the only difference between the input
+        tree and self is in the structure of the tree nodes. The prior and data are assumed to be the same.
+
+        @param tree: The proposed tree.
+        @return: The log-likelihood of tree.
+        """
         lnlike = 0.0
 
         # Precalculate terms
@@ -356,29 +395,36 @@ class CartTree(BaseTree):
         #sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
         #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
         
-        for node in self.terminalNodes:
-            fxl, fyl = self.filter(node)
-            npts    = np.sum(fyl)
+        for node in tree.terminalNodes:
+            fxl, fyl = tree.filter(node)
+            npts = np.sum(fyl)
             if npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
                 continue
-            ymean   = np.mean(self.y[fyl])
-            ystd    = np.std(self.y[fyl])
+
+            ymean = np.mean(self.y[fyl])
+            yvar = np.var(self.y[fyl], ddof=1)
 
             # Terms that depend on the data moments
-            si      = (npts - 1) * ystd
-            ti      = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+            si = (npts - 1) * yvar
+            ti = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
 
             # Calculation of the log likelihood (Chipman Eq 14)
-            t1      = -0.5 * npts * np.log(np.pi)
-            t3      = +0.5 * np.log(self.a / (npts + self.a))
-            t4      = gammaln(0.5 * (npts + self.nu)) - t4b
-            t5      = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
+            t1 = -0.5 * npts * np.log(np.pi)
+            t3 = +0.5 * np.log(self.a / (npts + self.a))
+            t4 = gammaln(0.5 * (npts + self.nu)) - t4b
+            t5 = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
             lnlike += t1 + t2 + t3 + t4 + t5
-            #print npts, ymean, ystd, lnlike
+            #print npts, ymean, yvar, lnlike
 
         return lnlike
+
+    def logdensity(self, tree):
+        logprior = self.logprior(tree)
+        loglik = self.loglik(tree)
+        return loglik + logprior
+
 
 class Node(object):
     NodeId = 0
@@ -403,6 +449,18 @@ class Node(object):
     def setThreshold(self, feature, threshold):
         self.feature = feature
         self.threshold = threshold
+
+    def find_depth(self):
+        """
+        Find the depth of this node by moving back through the parents until we reach the base of the tree.
+        """
+        depth = 0
+        parent = self.Parent
+        while parent is not None:
+            parent = parent.Parent
+            depth += 1
+
+        return depth
 
 if __name__ == "__main__":
     nsamples  = 1000
