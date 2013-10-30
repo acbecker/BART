@@ -226,21 +226,22 @@ def test_normal_model_ram():
     BiNormRAM = steps.AdaptiveMetro(NormPar, UnitProp, initial_covar, target_rate, burnin)
 
     # Create bivariate normal samples and sampler objects
-    BiNormSamples = samplers.MCMCSample()
-    BiNormSampler = samplers.Sampler(BiNormSamples, nsamples, burnin, thin=5)
+    BiNormSampler = samplers.Sampler()
 
     # Add RAM step
     BiNormSampler.add_step(BiNormRAM)
 
     # Run the sampler
-    BiNormSampler.run()
+    BiNormSamples = BiNormSampler.run(burnin, nsamples, thin=5)
 
+    BiNormSamples.newaxis()
     # Get the parameter values
     trace = BiNormSamples.get_samples(NormPar.name)
 
     # Test that the moments of the MCMC samples are less than 3sigma from the true values
     neffective = BiNormSamples.effective_samples(NormPar.name)
-    inv_covar = np.matrix(np.inv(NormPar.covar / neffective + NormPar.covar / ndata))
+    neffective = np.mean(neffective)
+    inv_covar = np.matrix(np.linalg.inv(NormPar.covar / neffective + NormPar.covar / ndata))
     mu_hat = np.mean(trace, axis=0)
     chisqr = np.matrix(mu_hat - mu2) * inv_covar * np.matrix(mu_hat - mu2).T
     assert chisqr < 9.21  # chisqr < 99th percentile of chi-square distribution with 2 degrees of freedom
@@ -274,14 +275,14 @@ def test_normal_model_ram():
                                      mu2[0], mu2[1], mu_covar[0, 1])
 
     plt.plot(trace[:, 0], trace[:, 1], '.')
-    plt.contour(X, Y, true_pdf)
+    plt.contour(X, Y, true_pdf, lw=5)
     plt.title('Bivariate Mean, RAM')
 
     plt.subplot(224)
     counts, mugrid, patches = plt.hist(trace[:, 1], bins=25, normed=True)
     pdf0 = 1.0 / np.sqrt(2.0 * np.pi * NormPar.covar[1, 1] / ndata) * \
            np.exp(-0.5 * ndata * (NormPar.data_mean[1] - mugrid) ** 2 / NormPar.covar[1, 1])
-    plt.plot(mugrid, pdf0, 'r')
+    plt.plot(mugrid, pdf0, 'r', lw=2)
     plt.title("Second element of Mean Value, RAM")
     plt.ylabel("Posterior PDF")
     plt.xlabel("$\mu$[1]")
@@ -290,7 +291,9 @@ def test_normal_model_ram():
     # Summarize and plot the posterior
     BiNormSamples.posterior_summaries(NormPar.name)
     for i in xrange(NormPar.value.size):
-        BiNormSamples.plot_parameter(NormPar.name, pindex=i)
+        BiNormSamples.plot_parameter(NormPar.name, pindex=i, doShow=True)
+
+    print 'Test of RAM algorithm for vector-valued parameter was successful.'
 
 
 def test_normal_model_gibbs():
@@ -303,14 +306,9 @@ def test_normal_model_gibbs():
     MuGibbs = steps.GibbStep(NormMean)
     VarGibbs = steps.GibbStep(NormVar)
 
-    NormSamples = samplers.MCMCSample()
-    NormSampler = samplers.Sampler(NormSamples, nsamples, burnin)
-
-    # Add the Gibbs steps
-    NormSampler.add_step(MuGibbs)
-    NormSampler.add_step(VarGibbs)
-
-    NormSampler.run()
+    NormSampler = samplers.Sampler([MuGibbs, VarGibbs])
+    NormSamples = NormSampler.run(burnin, nsamples)
+    NormSamples.newaxis()
 
     # Get the parameter values
     mutrace = NormSamples.get_samples(NormMean.name)
@@ -352,7 +350,9 @@ def test_normal_model_gibbs():
 
 
 if __name__ == "__main__":
-    test_addstep()
-    test_savevalues()
-    test_normal_mean_mha()
-    test_normal_mean_ram()
+    #test_addstep()
+    #test_savevalues()
+    #test_normal_mean_mha()
+    #test_normal_mean_ram()
+    #test_normal_model_ram()
+    test_normal_model_gibbs()
