@@ -54,6 +54,7 @@ class NormalVariance(steps.Parameter):
     def __init__(self, data, prior, name="sigsqr", track=True, temperature=1.0):
         self.data_var = np.var(data)
         self.data_mean = np.mean(data)
+        self.data = data
         self.ndata = len(data)
         self.prior = prior
         steps.Parameter.__init__(self, name, track, temperature)
@@ -68,7 +69,8 @@ class NormalVariance(steps.Parameter):
 
     def random_posterior(self):
         # Only works for a scaled inverse-chi-square prior object
-        ssqr = self.data_var + (self.data_mean - self.mean.value) ** 2
+        resids = self.data - self.mean.value
+        ssqr = np.var(resids)
         post_dof = self.ndata + self.prior.dof
         post_ssqr = (self.ndata * ssqr + self.prior.dof * self.prior.ssqr) / post_dof
         return post_ssqr * post_dof / np.random.chisquare(post_dof)
