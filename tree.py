@@ -331,6 +331,7 @@ class CartTree(BaseTree):
         # Build the tree
         self.buildUniform(self.head, alpha, beta)
 
+    # NOTE: This part would likely benefit from numba or cython
     def regressionLnlike(self):
         lnlike = 0.0
 
@@ -349,7 +350,7 @@ class CartTree(BaseTree):
             ystd    = np.std(self.y[fyl])
 
             # Random draws for mean-variance shift model
-            sigsq   = stats.invgauss.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
+            sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
             mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
 
             # Terms that depend on the data moments
