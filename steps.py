@@ -13,7 +13,6 @@ import numpy as np
 import math
 from misc import cholupdate_r1
 from scipy.linalg import cholesky
-from numba import autojit, jit, int_, double, void, c_string_type, bool_
 
 
 class Parameter(object):

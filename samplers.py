@@ -7,7 +7,8 @@ __author__ = 'Brandon C. Kelly'
 import numpy as np
 import progressbar
 from matplotlib import pyplot as plt
-from numba import jit, void, int_, bool_, autojit
+import acor
+
 
 class MCMCSample(object):
     """
@@ -35,13 +36,16 @@ class MCMCSample(object):
         self._samples = dict()  # Empty dictionary. We will place the samples for each tracked parameter here.
 
         if logpost is not None:
-            self.set_logpost(logpost)
+            self.logpost = logpost
 
         if trace is not None:
             self.generate_from_trace(trace)
         elif filename is not None:
             # Construct MCMCSample object by reading in MCMC samples from one or more asciifiles.
             self.generate_from_file([filename])
+
+    def generate_from_trace(self):
+        pass
 
     def get_samples(self, name):
         """
@@ -69,7 +73,7 @@ class MCMCSample(object):
             if name not in self._samples:
                 # Parameter is not already in the dictionary, so add it. Otherwise do nothing.
                 self._samples[name] = trace
-
+        self.newaxis()
 
     def autocorr_timescale(self, trace):
         """
@@ -79,7 +83,7 @@ class MCMCSample(object):
         """
         acors = []
         for i in range(trace.shape[1]):
-            tau, mean, sigma = acor.acor(trace[:, i].real) # Warning, does not work with numpy.complex
+            tau, mean, sigma = acor.acor(trace[:, i].real)  # Warning, does not work with numpy.complex
             acors.append(tau)
         return np.array(acors)
 
@@ -419,7 +423,7 @@ class Sampler(object):
     parameters are saved to a MCMCSample object.
     """
 
-    def __init__(self):
+    def __init__(self, steps=None):
         """
         Constructor for Sampler object.
 
@@ -430,12 +434,15 @@ class Sampler(object):
         self.burnin = 0
         self.thin = 1
         self._steps = []  # Empty list that will eventually contain the step objects.
+        if steps is not None:
+            for s in steps:
+                self.add_step(s)
 
         # Construct progress bar objects
         self._burnin_bar = progressbar.ProgressBar()
         self._sampler_bar = progressbar.ProgressBar()
 
-        self._samples = MCMCSample()  # MCMCSample class object. This is where the sampled values are stored.
+        self.mcmc_samples = MCMCSample()  # MCMCSample class object. This is where the sampled values are stored.
 
     def add_step(self, step):
         """
@@ -460,12 +467,14 @@ class Sampler(object):
                     # Get numpy array that will store the samples values for this parameter
                     value_array = np.empty(trace_shape)
                     # Add the array that will hold the sampled parameter values to the dictionary of samples.
-                self._samples._samples[step._parameter.name] = value_array
+                self.mcmc_samples._samples[step._parameter.name] = value_array
 
     def start(self):
-        self._allocate_arrays()
         for step in self._steps:
             step._parameter.set_starting_value()
+        self._allocate_arrays()
+        self._burnin_bar.maxval = self.burnin
+        self._sampler_bar.maxval = self.sample_size
 
     def iterate(self, niter, burnin_stage):
         """
@@ -492,10 +501,10 @@ class Sampler(object):
             # Save the parameter value associated with each step.
             if np.isscalar(step._parameter.value):
                 # Need to treat scalar case separately
-                self._samples._samples[step._parameter.name][current_iteration] = step._parameter.value
+                self.mcmc_samples._samples[step._parameter.name][current_iteration] = step._parameter.value
             else:
                 # Have a vector- or matrix-valued parameter
-                self._samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
+                self.mcmc_samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
 
     def run(self, burnin, nsamples, thin=1):
         """
@@ -509,17 +518,16 @@ class Sampler(object):
         self.burnin = burnin
         self.sample_size = nsamples
         self.thin = thin
-        # First print out helpful information.
-        print "Using", len(self._steps), "steps in the MCMC sampler."
-        print "Obtaining samples of size", self.sample_size, "for", len(self._samples._samples), "parameters."
-
         # Set starting values
         self.start()
+
+        print "Using", len(self._steps), "steps in the MCMC sampler."
+        print "Obtaining samples of size", self.sample_size, "for", len(self.mcmc_samples._samples), "parameters."
 
         # Do burn-in stage
         print "Doing burn-in stage first..."
         self._burnin_bar.start()
-        self.iterate(self.burnin)  # Perform the burn-in iterations
+        self.iterate(self.burnin, True)  # Perform the burn-in iterations
 
         # Now run the sampler.
         print "Sampling..."
@@ -533,14 +541,14 @@ class Sampler(object):
 
             else:
                 # Need to thin the samples, so do thin iterations.
-                self.iterate(self.thin, burnin_stage=False)
+                self.iterate(self.thin, False)
 
             # Now save the tracked parameter values to the samples dictionary object
             self.save_values()
 
             self._sampler_bar.update(i + 1)  # Update the progress bar
 
-        return self._samples
+        return self.mcmc_samples
 
     def restart(self, sample_size, thin=1):
         """

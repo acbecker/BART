@@ -6,7 +6,6 @@ must supply a proposal object.
 
 import numpy as np
 import math
-from numba import autojit
 
 __author__ = "Brandon C. Kelly"
 

@@ -6,7 +6,6 @@ __author__ = 'Brandon C. Kelly'
 
 import numpy as np
 from scipy import stats
-from numba import autojit
 
 
 class Prior(object):

@@ -38,7 +38,6 @@ MuGibbs = steps.GibbStep(NormMean)
 VarGibbs = steps.GibbStep(NormVar)
 
 # Now instantiate the MCMC samples and sampler object
-NormSamples = samplers.MCMCSample()
 nsamples = 20000
 burnin = 20000  # Do 5000 iterations of burn-in
 NormSampler = samplers.Sampler()
@@ -73,7 +72,10 @@ def test_addstep():
     """
     # First test step addition on scalar-valued parameter
     NormSampler.add_step(MuGibbs)
-    NormSamples = NormSampler._samples
+    assert MuGibbs in NormSampler._steps
+    NormSampler.sample_size = nsamples
+    NormSampler.start()
+    NormSamples = NormSampler.mcmc_samples
     # Was this parameter added to the dictionary of samples in the NormSamples object?
     assert NormMean.name in NormSamples._samples
     if NormMean.name in NormSamples._samples:
@@ -82,8 +84,10 @@ def test_addstep():
 
     # Now test step addition on vector-valued parameter
     BiNormSampler.add_step(BiNormRAM)
-
-    BiNormSamples = BiNormSampler._samples
+    assert BiNormRAM in BiNormSampler._steps
+    BiNormSampler.sample_size = nsamples
+    BiNormSampler.start()
+    BiNormSamples = BiNormSampler.mcmc_samples
 
     # Was this parameter added to the dictionary of samples in the BiNormSamples object?
     assert NormPar.name in BiNormSamples._samples
@@ -104,15 +108,19 @@ def test_savevalues():
     NormSampler.save_values()
 
     current_index = NormSampler._sampler_bar.currval
+    NormSamples = NormSampler.mcmc_samples
     mu_samples = NormSamples.get_samples(NormMean.name)
     assert mu_samples[current_index] == NormMean.value
 
     # Now do same test for vector-valued parameter
     BiNormSampler.save_values()
     current_index = BiNormSampler._sampler_bar.currval
+    BiNormSamples = BiNormSampler.mcmc_samples
     mu2d_samples = BiNormSamples.get_samples(NormPar.name)
     equal_array = (mu2d_samples[current_index, :] == NormPar.value)
     assert np.sum(equal_array) == NormPar.value.size
+
+    print 'Test of Sampler.save_values() was successful.'
 
 
 def test_generate_from_file():
@@ -130,12 +138,10 @@ def test_normal_mean_mha():
     NormProp = proposals.NormalProposal(np.sqrt(var / ndata))
     MuMHA = steps.MetroStep(NormMean, NormProp, report_iter=burnin)
 
-    MuSamples = samplers.MCMCSample()
-    MuSampler = samplers.Sampler(MuSamples, nsamples, burnin)
+    MuSampler = samplers.Sampler([MuMHA])
 
-    MuSampler.add_step(MuMHA)
-
-    MuSampler.run()
+    MuSamples = MuSampler.run(burnin, nsamples)
+    MuSamples.newaxis()
 
     # Get the parameter values
     trace = MuSamples.get_samples(NormMean.name)
@@ -157,6 +163,8 @@ def test_normal_mean_mha():
     neffective = MuSamples.effective_samples(NormMean.name)  # Effective number of independent samples
     assert np.abs(np.mean(trace) - data.mean()) < 3.0 * np.std(trace)
     assert np.abs(np.std(trace) - np.sqrt(var / ndata)) * np.sqrt(ndata / var) < 0.05
+
+    print 'Test of MHA algorithm for scalar-valued parameter was successful.'
 
 
 def test_normal_mean_ram():
@@ -343,3 +351,5 @@ def test_normal_model_gibbs():
 
 if __name__ == "__main__":
     test_addstep()
+    test_savevalues()
+    test_normal_mean_mha()
