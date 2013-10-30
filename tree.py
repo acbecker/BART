@@ -1,20 +1,26 @@
 import numpy as np
 import collections
+import scipy.stats as stats
+from scipy.special import gamma
 
 class CartProposal(object):
-    def __init__(self, tree):
-        self.tree = tree
+    def __init__(self):
+        pass
 
-    def __call__(self):
-        prop = np.random.random()
+    def __call__(self, tree):
+        prop = np.random.uniform()
         if prop < 0.25:
-            self.tree.grow()
+            print "# GROW",
+            tree.grow()
         elif prop < 0.50:
-            self.tree.prune()
+            print "# PRUNE",
+            tree.prune()
         elif prop < 0.75:
-            self.tree.change()
+            print "# CHANGE",
+            tree.change()
         else:
-            self.tree.swap()
+            print "# SWAP",
+            tree.swap()
         
 
 class CartTree(object):
@@ -23,71 +29,129 @@ class CartTree(object):
     # 
     # y|X has distribution f(y|Theta).
 
-    def __init__(self, X, y, min_samples_leaf=5):
+    def __init__(self, X, y, 
+                 nu, lamb, mubar, a, 
+                 alpha=0.95, beta=1.0,
+                 min_samples_leaf=5):
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
         self.n_samples  = X.shape[0]
-        self.min_samples_leaf = min_samples_leaf
-        self.head = Node(None, None)
 
+        # How big of a tree do we want to make
+        self.nmin = min_samples_leaf
+
+        # Initialize the tree
+        self.head = Node(None, None)
         self.terminalNodes = [self.head,]
         self.internalNodes = []
 
+        # Tuning parameters of the model
+        self.nu    = nu
+        self.lamb  = lamb
+        self.mubar = mubar
+        self.a     = a
 
-    def buildUniformly(self, node, alpha=0.95, beta=1.0, depth=0):
-        print node, depth
+        # Build the tree
+        self.buildUniform(self.head, alpha, beta)
+
+    def prule(self, node):
+        """Implement a uniform draw from the features to split on, and
+        then choose the split value uniformly from the set of
+        available observed values"""
+        feature = np.random.randint(self.n_features)
+        idxX, idxY = self.filter(node)
+        data = self.X[:, feature][idxX[:, feature]]
+        if len(data) == 0: return None, None
+        idxD = np.random.randint(len(data))
+        threshold = data[idxD]
+        return feature, threshold
+
+    def buildUniform(self, node, alpha, beta, depth=0):
         psplit = alpha * (1 + depth)**-beta
-        rand   = np.random.random()
+        rand   = np.random.uniform()
         if rand < psplit:
-            feature = np.random.randint(self.n_features)
-            idxX, idxY = self.filter(node)
-            data = self.X[:, feature][idxX[:, feature]]
-            minval = np.min(data)
-            maxval = np.max(data)
-            threshold = np.random.random() * (maxval - minval) + minval
+            feature, threshold = self.prule(node)
+            if feature is None or threshold is None:
+                print "NO DATA LEFT, rejecting split"
+                return
             nleft, nright = self.split(node, feature, threshold)
-            self.buildUniformly(nleft, depth=depth+1)
-            self.buildUniformly(nright, depth=depth+1)
+            if nleft is not None and nright is not None:
+                print "EXTENDING node", node.Id, "to depth", depth+1
+                self.buildUniform(nleft, alpha, beta, depth=depth+1)
+                self.buildUniform(nright, alpha, beta, depth=depth+1)
+            else:
+                print "NOT EXTENDING node", node.Id, ": too few points"
+        else:
+            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
+            
+    def regressionLnlike(self):
+        lnlike = 0.0
 
-    def trim(self, nmin=2):
-        # Get rid of terminal nodes with no data
-        #
-        # Tricky, note that the terminal nodes change after every
-        # trim.  Need to make this recursive somehow.
-        return
-
-        totrim = []
-        for node in self.terminalNodes:
-            fx, fy = self.filter(node)
-            if len(np.where(fy == True)[0]) < nmin:
-                totrim.append(node)
-        for node in totrim:
-            print " TRIMMING NODE", node.Id
-            parent = node.Parent
-            parent.Left = None
-            parent.Reft = None
-            del node
-            self.calcTerminalNodes() # shoot, resizes terminal nodes
-            self.calcInternalNodes()
+        # Precalculate terms
+        t2  = +0.5 * self.nu * np.log(self.nu * self.lamb)
+        t4b = np.log(gamma(0.5 * self.nu))
         
+        for node in self.terminalNodes:
+            fxl, fyl = self.filter(node)
+            npts    = np.sum(fyl)
+            if npts == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+            ymean   = np.mean(self.y[fyl])
+            ystd    = np.std(self.y[fyl])
+
+            # Random draws for mean-variance shift model
+            sigsq   = stats.invgauss.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
+            mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
+
+            # Terms that depend on the data moments
+            si      = (npts - 1) * ystd
+            ti      = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+
+            # Calculation of the log likelihood (Chipman Eq 14)
+            t1      = -0.5 * npts * np.log(np.pi)
+            t3      = +0.5 * np.log(self.a / (npts + self.a))
+            t4      = np.log(gamma(0.5 * (npts + self.nu))) - t4b
+            t5      = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
+            lnlike += t1 + t2 + t3 + t4 + t5
+            print npts, ymean, ystd, lnlike
+
+        return lnlike
+
     # GROW step: randomly pick a terminal node and split into 2 new
     # ones by randomly assigning a splitting rule.  
-    #
-    # Note: this updates the internal/terminal nodes.
-    def grow(self, feature, threshold):
+    def grow(self):
         nodes = self.terminalNodes
         rnode = nodes[np.random.randint(len(nodes))]
-        return rnode, self.split(rnode, feature, threshold)
+        feature, threshold = self.prule(rnode)
+        if feature is None or threshold is None:
+            return
+        self.split(rnode, feature, threshold)
 
     def split(self, parent, feature, threshold):
         # Threshold is of length self.n_features
         nleft  = Node(parent, True)  # Add left node; it registers with parent
         nright = Node(parent, False) # Add right node; it registers with parent
         parent.setThreshold(feature, threshold)
-        self.calcTerminalNodes()
-        self.calcInternalNodes()
-        return nleft, nright
+
+        fxl, fyl = self.filter(nleft)
+        fxr, fyr = self.filter(nright)
+        
+        # only split if it yields at least nmin points per child
+        if np.sum(fyl) >= self.nmin and np.sum(fyr) >= self.nmin:
+            self.calcTerminalNodes()
+            self.calcInternalNodes()
+            return nleft, nright
+        else:
+            del nleft
+            del nright
+            parent.setThreshold(None, None)
+            parent.Left = None
+            parent.Right = None
+            return None, None
+
 
 
     # PRUNE step: randomly pick a parent of 2 terminal nodes and turn
@@ -96,23 +160,37 @@ class CartTree(object):
     # Note: this updates the internal/terminal nodes.
     def prune(self):
         nodes    = self.terminalNodes
+        if len(nodes) == 0: return
         parents  = [x.Parent for x in nodes]
+        if len(parents) == 0: return
         dparents = [x for x, y in collections.Counter(parents).items() if y == 2] # make sure there are 2 terminal children
+        if len(dparents) == 0: return
         parent   = dparents[np.random.randint(len(dparents))]
         parent.Left = None
         parent.Right = None
         self.calcTerminalNodes()
         self.calcInternalNodes()
-        return parent
 
 
     # CHANGE step: randomly pick an internal node and randomly assign
     # it a splitting rule.  
-    def change(self, feature, threshold):
+    def change(self):
         nodes = self.internalNodes
+        if len(nodes) == 0: return
         rnode = nodes[np.random.randint(len(nodes))]
-        rnode.setThreshold(feature, threshold)
-        return rnode
+        feature0, threshold0 = rnode.feature, rnode.threshold
+
+        # See if we get an acceptable new split
+        featureN, thresholdN = self.prule(rnode)
+        if featureN is None or thresholdN is None:
+            return
+        rnode.setThreshold(featureN, thresholdN)
+
+        # Hmm, do I want to descend down the whole tree to see the consequences of this?
+        fxl, fyl = self.filter(rnode.Left)
+        fxr, fyr = self.filter(rnode.Right)
+        if np.sum(fyl) < self.nmin or np.sum(fyr) < self.nmin:
+            rnode.setThreshold(feature0, threshold0) # Undo, unacceptable split
 
 
     # SWAP step: randomly pick a parent-child pair that are both
@@ -121,9 +199,9 @@ class CartTree(object):
     # rule of the parent with both children
     def swap(self):
         nodes  = self.internalNodes
+        if len(nodes) == 0: return
         pnodes = list(set([n.Parent for n in nodes if n.Parent in nodes])) # Find an internal parent node with internal children
-        if len(pnodes) == 0:
-            return None
+        if len(pnodes) == 0: return 
         pnode  = pnodes[np.random.randint(len(pnodes))]
         lnode  = pnode.Left
         rnode  = pnode.Right
@@ -149,7 +227,6 @@ class CartTree(object):
         cthresh = cnode.threshold
         cnode.setThreshold(pfeat, pthresh)
         pnode.setThreshold(cfeat, cthresh)
-        return pnode, cnode
         
 
     def printTree(self, node):
@@ -188,7 +265,7 @@ class CartTree(object):
             self.calcInternalNodes_(node.Left)
             
     # Filter the data that end up in each (terminal) node; return
-    # their mean value.
+    # their locations
     def filter(self, node):
         includeX = np.ones(self.X.shape, dtype=np.bool)
         n = node
@@ -220,27 +297,22 @@ class Node(object):
             else:
                 parent.Right = self
 
-    # NOTE: the parent effetively carries the threshold
+    # NOTE: the parent carries the threshold
     def setThreshold(self, feature, threshold):
         self.feature = feature
         self.threshold = threshold
 
 if __name__ == "__main__":
-    nsamples  = 10
-    nfeatures = 2
+    nsamples  = 1000
+    nfeatures = 20
     X    = np.random.random((nsamples, nfeatures)) - 0.5
     y    = np.random.random((nsamples)) - 0.5
-    tree = CartTree(X, y)
-    tree.buildUniformly(tree.head)
-    tree.trim()
-
-    #tree.split(tree.head, 0, 0.0)
-    #tree.split(tree.head.Left, 1, 0.1)
-    #tree.split(tree.head.Left.Right, 1, -0.1)
+    tree = CartTree(X, y, 0.5, 1.0, 0.0, 1.0, alpha=0.99, beta=1.0/np.log(nsamples))
+    prop = CartProposal()
     tree.printTree(tree.head)
+    for i in range(10000):
+        prop(tree)
+        print tree.regressionLnlike()
 
     print "Terminal", [x.Id for x in tree.terminalNodes]
     print "Internal", [x.Id for x in tree.internalNodes]
-
-    for node in tree.terminalNodes:
-        print node.Id, tree.filter(node)
