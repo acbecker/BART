@@ -8,11 +8,12 @@ from scipy.special import gammaln
 ####
 
 class BaseTree(object):
-    def __init__(self, X, y):
+    def __init__(self, X, y, min_samples_leaf=5):
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
         self.n_samples  = X.shape[0]
+        self.nmin       = min_samples_leaf
 
         # Initialize the tree
         self.head = Node(None, None)
@@ -235,22 +236,24 @@ class BartProposal(object):
             tree.swap()
 
 class BartTree(BaseTree):
-    def __init__(self, X, y):
-        BaseTree.__init__(self, X, y, alpha, beta)
+    def __init__(self, X, y, alpha, beta):
+        BaseTree.__init__(self, X, y)
         self.k     = 2    # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
 
-        # Note, these should be tuned based on the data.  Algorithm
-        # looks like:
-        sigma1    = np.std(self.y)
-        regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
-        fit       = regressor.fit(X, y)
-        sigma2    = np.mean(fit.predict(X) - y)
+        if False:
+            sigma = np.std(self.y)
+        else:
+            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
+            fit       = regressor.fit(X, y)
+            sigma     = np.mean(fit.predict(X) - y)
         # These values of sigma1, sigma2 should be used to predict nu
         # and q.
-        self.nu    = 3.0  # Shoudl always be > 3
-        self.q     = 0.90 # Moves prior mode smaller as this increases
+        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
 
-
+        qchi       = stats.chi2.interval(self.nu, self.q)[1]
+        self.lamb  = sigma**2 * qchi / self.nu
+        
         self.buildUniform(self.head, alpha, beta)
 
 class BartTrees(object):
@@ -269,20 +272,32 @@ class BartTrees(object):
         self.y += np.min(self.y) # minimum = 0
         self.y /= np.max(self.y) # maximum = 1
         self.y -= 0.5            # range is -0.5 to 0.5
-
-        self.m = m               # number of trees
+ 
+        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
+        self.m = m       # Number of trees
+        self.mumu  = 0.0
+        self.sigmu = 0.5 / self.k / np.sqrt(self.m)  
+        self.a     = 1.0 / (self.sigmu**2)
         self.trees = []
         for m in range(self.m):
-            self.trees.append(BartTree(self.X, self.y))
+            self.trees.append(BartTree(self.X, self.y, self.alpha, self.beta))
 
     def regressionLnlike(self):
         prop = BartProposal()
         lnlikes = []
         for m in range(self.m):
-            tree = trees[m]
+            tree = self.trees[m]
+
+            ydat = y - mtotalfit + mtrainfits[i]
+            mtotalfit += mfits[1] - mtrainfits[i]
+            mtrainfits[i] = mfits[1]
+            mtestfits[j] = mfits[2]
+
+        eps = yData[:,1] - mtotalfits
+
             prop(tree) # Modify tree
             lnlikes.append(tree.regressionLnlike())
-            
+        return np.sum(lnlikes)
 ####
 #################
 ####
@@ -317,10 +332,7 @@ class CartTree(BaseTree):
                  nu, lamb, mubar, a, 
                  alpha=0.95, beta=1.0,
                  min_samples_leaf=5):
-        BaseTree.__init__(self, X, y)
-
-        # How big of a tree do we want to make
-        self.nmin = min_samples_leaf
+        BaseTree.__init__(self, X, y, min_samples_leaf)
 
         # Tuning parameters of the model
         self.nu    = nu
@@ -338,6 +350,11 @@ class CartTree(BaseTree):
         # Precalculate terms
         t2  = np.log((self.nu * self.lamb)**(0.5 * self.nu))
         t4b = gammaln(0.5 * self.nu)
+
+        # Random draws for mean-variance shift model.  NOTE: these are
+        # unncessary, these distributions are marginalized over.
+        #sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
+        #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
         
         for node in self.terminalNodes:
             fxl, fyl = self.filter(node)
@@ -348,10 +365,6 @@ class CartTree(BaseTree):
                 continue
             ymean   = np.mean(self.y[fyl])
             ystd    = np.std(self.y[fyl])
-
-            # Random draws for mean-variance shift model
-            sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
-            mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
 
             # Terms that depend on the data moments
             si      = (npts - 1) * ystd
@@ -399,9 +412,15 @@ if __name__ == "__main__":
     tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, alpha=0.99, beta=1.0/np.log(nsamples))
     prop = CartProposal()
     tree.printTree(tree.head)
-    for i in range(10000):
-        prop(tree)
-        print tree.regressionLnlike()
+    #for i in range(10000):
+    #    prop(tree)
+    #    print tree.regressionLnlike()
 
     print "Terminal", [x.Id for x in tree.terminalNodes]
     print "Internal", [x.Id for x in tree.internalNodes]
+
+    tree = BartTrees(X, y)
+    for i in range(10):
+        tree.regressionLnlike()
+
+    
