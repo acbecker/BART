@@ -411,6 +411,7 @@ class MCMCSample(object):
             if len(self._samples[key].shape) == 1:
                 self._samples[key] = self._samples[key][:, np.newaxis]
 
+
 class Sampler(object):
     """
     A class to generate samples of parameter from their probability distribution. Samplers consist of a series of
@@ -418,7 +419,7 @@ class Sampler(object):
     parameters are saved to a MCMCSample object.
     """
 
-    def __init__(self, steps=None, mcmc_samples=None):
+    def __init__(self):
         """
         Constructor for Sampler object.
 
@@ -429,18 +430,12 @@ class Sampler(object):
         self.burnin = 0
         self.thin = 1
         self._steps = []  # Empty list that will eventually contain the step objects.
-        if steps is not None:
-            for s in steps:
-                self.add_step(s)
 
         # Construct progress bar objects
         self._burnin_bar = progressbar.ProgressBar()
         self._sampler_bar = progressbar.ProgressBar()
 
-        if mcmc_samples is None:
-            self._mcmc_samples = MCMCSample()  # MCMCSample class object. This is where the sampled values are stored.
-        else:
-            self._mcmc_samples = mcmc_samples
+        self._samples = MCMCSample()  # MCMCSample class object. This is where the sampled values are stored.
 
     def add_step(self, step):
         """
@@ -450,21 +445,25 @@ class Sampler(object):
         """
         self._steps.append(step)
 
-        if step._parameter.track:
-            # We are saving this parameter's values, so add to dictionary of samples.
-            if np.isscalar(step._parameter.value):
-                # Parameter is scalar-valued, so this is easy
-                value_array = np.empty(self.sample_size)
-            else:
-                # Parameter is array-like, so get shape of parameter array first
-                pshape = step._parameter.value.shape
-                trace_shape = (self.sample_size,) + pshape
-                # Get numpy array that will store the samples values for this parameter
-                value_array = np.empty(trace_shape)
-                # Add the array that will hold the sampled parameter values to the dictionary of samples.
-            self._mcmc_samples.add_parameter(step._parameter.name, value_array)
+    def _allocate_arrays(self):
+
+        for step in self._steps:
+            if step._parameter.track:
+                # We are saving this parameter's values, so add to dictionary of samples.
+                if np.isscalar(step._parameter.value):
+                    # Parameter is scalar-valued, so this is easy
+                    value_array = np.empty(self.sample_size)
+                else:
+                    # Parameter is array-like, so get shape of parameter array first
+                    pshape = step._parameter.value.shape
+                    trace_shape = (self.sample_size,) + pshape
+                    # Get numpy array that will store the samples values for this parameter
+                    value_array = np.empty(trace_shape)
+                    # Add the array that will hold the sampled parameter values to the dictionary of samples.
+                self._samples._samples[step._parameter.name] = value_array
 
     def start(self):
+        self._allocate_arrays()
         for step in self._steps:
             step._parameter.set_starting_value()
 
@@ -493,10 +492,10 @@ class Sampler(object):
             # Save the parameter value associated with each step.
             if np.isscalar(step._parameter.value):
                 # Need to treat scalar case separately
-                self._mcmc_samples._samples[step._parameter.name][current_iteration] = step._parameter.value
+                self._samples._samples[step._parameter.name][current_iteration] = step._parameter.value
             else:
                 # Have a vector- or matrix-valued parameter
-                self._mcmc_samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
+                self._samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
 
     def run(self, burnin, nsamples, thin=1):
         """
@@ -512,7 +511,7 @@ class Sampler(object):
         self.thin = thin
         # First print out helpful information.
         print "Using", len(self._steps), "steps in the MCMC sampler."
-        print "Obtaining samples of size", self.sample_size, "for", len(self._mcmc_samples._samples), "parameters."
+        print "Obtaining samples of size", self.sample_size, "for", len(self._samples._samples), "parameters."
 
         # Set starting values
         self.start()
@@ -541,6 +540,7 @@ class Sampler(object):
 
             self._sampler_bar.update(i + 1)  # Update the progress bar
 
+        return self._samples
 
     def restart(self, sample_size, thin=1):
         """

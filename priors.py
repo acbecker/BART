@@ -6,6 +6,7 @@ __author__ = 'Brandon C. Kelly'
 
 import numpy as np
 from scipy import stats
+from numba import autojit
 
 
 class Prior(object):
@@ -91,13 +92,12 @@ class ScaledInvChiSqr(Prior):
         :param temperature: Temperature of prior distribution, see Prior class documentation.
         """
         Prior.__init__(self, temperature=temperature)
-        assert dof > 0  # Make sure parameter values are positive
-        assert ssqr > 0
+        # assert dof > 0  # Make sure parameter values are positive
+        # assert ssqr > 0
         self.dof = dof
         self.ssqr = ssqr
 
     def logdensity(self, value):
-        assert value > 0
         return stats.invgamma.logpdf(value, self.dof / 2.0, scale=self.dof * self.ssqr / 2.0)
 
     def draw(self):

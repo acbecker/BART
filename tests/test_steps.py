@@ -10,6 +10,7 @@ from scipy import stats, linalg
 import steps, priors, proposals
 import matplotlib.pyplot as plt
 from matplotlib import mlab
+from numba import autojit
 
 
 class NormalMean(steps.Parameter):
@@ -22,7 +23,7 @@ class NormalMean(steps.Parameter):
         self.data_var = np.var(data)
         self.ndata = len(data)
         self.prior = prior
-        steps.Parameter.__init__(self, name, track, temperature)
+        super(NormalMean, self).__init__(name, track, temperature)
 
     def set_starting_value(self):
         self.value = \
@@ -50,7 +51,7 @@ class NormalVariance(steps.Parameter):
     Normal variance parameter with fixed mean.
     """
 
-    def __init__(self, data, prior, name="variance", track=True, temperature=1.0):
+    def __init__(self, data, prior, name="sigsqr", track=True, temperature=1.0):
         self.data_var = np.var(data)
         self.data_mean = np.mean(data)
         self.ndata = len(data)
@@ -88,10 +89,10 @@ def test_Parameter():
     data = np.random.normal(mu0, var0, ndata)
 
     # Now instantiate the prior and parameter objects
-    MuPrior = priors.Normal(0.0, 100.0)
-    Mu = NormalMean(data, MuPrior)
-    VarPrior = priors.ScaledInvChiSqr(2, 1.0)
-    SigSqr = NormalVariance(data, VarPrior)
+    MuPrior = priors.Normal(0.0, 100.0, 1.0)
+    Mu = NormalMean(data, MuPrior, "mu", True, 1.0)
+    VarPrior = priors.ScaledInvChiSqr(2, 1.0, 1.0)
+    SigSqr = NormalVariance(data, VarPrior, "sigsqr", True, 1.0)
 
     # Add parameter objects to the other parameter object
     Mu.SetVariance(SigSqr)
@@ -189,9 +190,9 @@ def test_MetropStep():
 
     # Now instantiate the prior and parameter object
     MuPrior = priors.Normal(0.0, 100.0)
-    Mu = NormalMean(data, MuPrior)
+    Mu = NormalMean(data, MuPrior, "mu", True, 1.0)
     VarPrior = priors.ScaledInvChiSqr(2, 1.0)
-    SigSqr = NormalVariance(data, VarPrior)
+    SigSqr = NormalVariance(data, VarPrior, "sigsqr", True, 1.0)
 
     # Add parameter objects to the other parameter object
     Mu.SetVariance(SigSqr)
@@ -275,7 +276,7 @@ def test_AdaptiveMetro():
 
     # Now instantiate the prior and parameter object
     prior = priors.Uninformative()
-    NormPar = BivariateNormalMean(data, covar, prior)
+    NormPar = BivariateNormalMean(data, covar, prior, "mu", True, 1.0)
 
     # Create proposal object for MHA proposals
     prop_covar = np.identity(2)
@@ -366,3 +367,10 @@ def test_AdaptiveMetro():
     plt.ylabel('Mean 2')
     plt.xlabel('Mean 1')
     plt.show()
+
+
+if __name__ == "__main__":
+    test_Parameter()
+    test_MetropStep()
+    test_AdaptiveMetro()
+    print "All tests passed"
