@@ -359,12 +359,12 @@ class CartTree(BaseTree, steps.Parameter):
         # first get prior for terminal nodes
         for node in tree.terminalNodes:
             # probability of not splitting
-            logprior += np.log(1.0 - self.alpha / (1.0 + node.find_depth()) ** self.beta)
+            logprior += np.log(1.0 - self.alpha / (1.0 + node.depth) ** self.beta)
 
         # now get contribution from interior nodes
         for node in tree.internalNodes:
             # probability of splitting this node
-            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.find_depth())
+            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
 
             # get number of features and data points that are available for the splitting rule
             fxl, fyl = tree.filter(node)
@@ -444,23 +444,15 @@ class Node(object):
                 parent.Left = self
             else:
                 parent.Right = self
+            self.depth = self.Parent.depth + 1
+        else:
+            self.depth = 0
 
     # NOTE: the parent carries the threshold
     def setThreshold(self, feature, threshold):
         self.feature = feature
         self.threshold = threshold
 
-    def find_depth(self):
-        """
-        Find the depth of this node by moving back through the parents until we reach the base of the tree.
-        """
-        depth = 0
-        parent = self.Parent
-        while parent is not None:
-            parent = parent.Parent
-            depth += 1
-
-        return depth
 
 if __name__ == "__main__":
     nsamples  = 1000
