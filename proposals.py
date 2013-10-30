@@ -6,6 +6,7 @@ must supply a proposal object.
 
 import numpy as np
 import math
+from numba import autojit
 
 __author__ = "Brandon C. Kelly"
 
@@ -91,13 +92,10 @@ class LogNormalProposal(Proposal):
         self.scale = scale
 
     def draw(self, current_value):
-        assert current_value > 0  # Make sure values are positive
         proposed_value = np.random.lognormal(math.log(current_value), self.scale)
         return proposed_value
 
     def logdensity(self, proposed_value, current_value):
-        assert current_value > 0  # Make sure values are positive
-        assert proposed_value > 0
         chi = (math.log(proposed_value) - math.log(current_value)) / self.scale
         log_density = -math.log(proposed_value) - chi * chi
         return log_density

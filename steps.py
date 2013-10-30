@@ -13,6 +13,7 @@ import numpy as np
 import math
 from misc import cholupdate_r1
 from scipy.linalg import cholesky
+from numba import autojit, jit, int_, double, void, c_string_type, bool_
 
 
 class Parameter(object):
@@ -22,7 +23,7 @@ class Parameter(object):
     several methods that are expected to be overridden.
     """
 
-    def __init__(self, name, track=True, temperature=1.0):
+    def __init__(self, name, track, temperature=1.0):
         """
         Constructor for the parameter class.
 
@@ -36,6 +37,7 @@ class Parameter(object):
         self.track = track
         self._temperature = temperature
         self._log_posterior = 0.0
+        self.value = 0.0
         self.set_starting_value()
 
     def set_starting_value(self):
@@ -108,7 +110,7 @@ class MetroStep(Step):
     of the parameter object to be defined.
     """
 
-    def __init__(self, parameter, proposal, report_iter=-1):
+    def __init__(self, parameter, proposal, report_iter):
         """
         Constructor for Metropolis-Hastings step object.
 

@@ -20,10 +20,10 @@ data = np.random.normal(mu, var, ndata)
 # Construct a simple normal model. Subsequent tests are based on this object.
 
 # First instantiate the prior and parameter objects
-MuPrior = priors.Normal(0.0, 1000.0)
-VarPrior = priors.ScaledInvChiSqr(2.0, 1.0)
-NormMean = tsteps.NormalMean(data, MuPrior)
-NormVar = tsteps.NormalVariance(data, VarPrior)
+MuPrior = priors.Normal(0.0, 1000.0, 1.0)
+VarPrior = priors.ScaledInvChiSqr(2.0, 1.0, 1.0)
+NormMean = tsteps.NormalMean(data, MuPrior, "mu", True, 1.0)
+NormVar = tsteps.NormalVariance(data, VarPrior, "sigsqr", True, 1.0)
 
 # Make the two parameter objects aware of eachother
 NormMean.SetVariance(NormVar)
@@ -64,8 +64,7 @@ target_rate = 0.4
 BiNormRAM = steps.AdaptiveMetro(NormPar, UnitProp, covar, target_rate, burnin)
 
 # Create bivariate normal samples and sampler objects
-BiNormSamples = samplers.MCMCSample()
-BiNormSampler = samplers.Sampler(BiNormSamples, nsamples, burnin)
+BiNormSampler = samplers.Sampler()
 
 
 def test_addstep():
@@ -74,7 +73,7 @@ def test_addstep():
     """
     # First test step addition on scalar-valued parameter
     NormSampler.add_step(MuGibbs)
-
+    NormSamples = NormSampler._samples
     # Was this parameter added to the dictionary of samples in the NormSamples object?
     assert NormMean.name in NormSamples._samples
     if NormMean.name in NormSamples._samples:
@@ -84,6 +83,8 @@ def test_addstep():
     # Now test step addition on vector-valued parameter
     BiNormSampler.add_step(BiNormRAM)
 
+    BiNormSamples = BiNormSampler._samples
+
     # Was this parameter added to the dictionary of samples in the BiNormSamples object?
     assert NormPar.name in BiNormSamples._samples
     if NormPar.name in BiNormSamples._samples:
@@ -91,6 +92,8 @@ def test_addstep():
         assert BiNormSamples._samples[NormPar.name].shape == (nsamples, 2)
 
         # TODO: TEST THE addstep METHOD FOR MATRIX-VALUED PARAMETERS
+
+    print 'Test of Sampler.add_step() was successful.'
 
 
 def test_savevalues():
@@ -337,3 +340,6 @@ def test_normal_model_gibbs():
     NormSamples.posterior_summaries(NormVar.name)
     NormSamples.plot_parameter(NormVar.name)
 
+
+if __name__ == "__main__":
+    test_addstep()

@@ -22,7 +22,7 @@ def test_NormalProposal():
 
     x = np.empty(ndraws)
     for i in xrange(ndraws):
-        x[i] = NormProposal.Draw(mu)
+        x[i] = NormProposal.draw(mu)
 
     x0 = np.random.normal(mu, sigma, ndraws)
 
@@ -54,7 +54,7 @@ def test_MultiNormalProposal():
     ndraws = 100000
     xx = np.zeros((ndraws, 3))
     for i in xrange(ndraws):
-        xx[i, :] = MultiProp.Draw(mu)
+        xx[i, :] = MultiProp.draw(mu)
 
     sample_mean = xx.mean(axis=0)
     sample_covar = np.cov(xx, rowvar=0)
@@ -104,8 +104,8 @@ def test_LogNormalProposal():
     proposed_value = x[0]
     current_value = np.exp(mu)
 
-    logdens_forward = LogNormProp.LogDensity(proposed_value, current_value)
-    logdens_backward = LogNormProp.LogDensity(current_value, proposed_value)
+    logdens_forward = LogNormProp.logdensity(proposed_value, current_value)
+    logdens_backward = LogNormProp.logdensity(current_value, proposed_value)
 
     lograt = logdens_forward - logdens_backward
 
@@ -133,7 +133,7 @@ def test_StudentProposal():
 
     x = np.empty(ndraws)
     for i in xrange(ndraws):
-        x[i] = tProp.Draw(mu)
+        x[i] = tProp.draw(mu)
 
     x0 = mu + sigma * np.random.standard_t(dof, ndraws)
 
@@ -142,3 +142,12 @@ def test_StudentProposal():
     ks_statistic, significance = stats.ks_2samp(x, x0)
 
     assert significance > 1e-3
+
+
+if __name__ == "__main__":
+    test_NormalProposal()
+    test_StudentProposal()
+    test_LogNormalProposal()
+    test_MultiNormalProposal()
+
+    print "All tests passed"
