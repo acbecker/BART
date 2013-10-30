@@ -1,59 +1,23 @@
 import numpy as np
 import collections
 import scipy.stats as stats
-from scipy.special import gamma
+from scipy.special import gammaln
 
-class CartProposal(object):
-    def __init__(self):
-        pass
+####
+#################
+####
 
-    def __call__(self, tree):
-        prop = np.random.uniform()
-        if prop < 0.25:
-            print "# GROW",
-            tree.grow()
-        elif prop < 0.50:
-            print "# PRUNE",
-            tree.prune()
-        elif prop < 0.75:
-            print "# CHANGE",
-            tree.change()
-        else:
-            print "# SWAP",
-            tree.swap()
-        
-
-class CartTree(object):
-    # Describes the conditional distribution of y given X.  X is a
-    # vector of predictors.  Each terminal node has parameter Theta.
-    # 
-    # y|X has distribution f(y|Theta).
-
-    def __init__(self, X, y, 
-                 nu, lamb, mubar, a, 
-                 alpha=0.95, beta=1.0,
-                 min_samples_leaf=5):
+class BaseTree(object):
+    def __init__(self, X, y):
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
         self.n_samples  = X.shape[0]
 
-        # How big of a tree do we want to make
-        self.nmin = min_samples_leaf
-
         # Initialize the tree
         self.head = Node(None, None)
         self.terminalNodes = [self.head,]
         self.internalNodes = []
-
-        # Tuning parameters of the model
-        self.nu    = nu
-        self.lamb  = lamb
-        self.mubar = mubar
-        self.a     = a
-
-        # Build the tree
-        self.buildUniform(self.head, alpha, beta)
 
     def prule(self, node):
         """Implement a uniform draw from the features to split on, and
@@ -66,59 +30,6 @@ class CartTree(object):
         idxD = np.random.randint(len(data))
         threshold = data[idxD]
         return feature, threshold
-
-    def buildUniform(self, node, alpha, beta, depth=0):
-        psplit = alpha * (1 + depth)**-beta
-        rand   = np.random.uniform()
-        if rand < psplit:
-            feature, threshold = self.prule(node)
-            if feature is None or threshold is None:
-                print "NO DATA LEFT, rejecting split"
-                return
-            nleft, nright = self.split(node, feature, threshold)
-            if nleft is not None and nright is not None:
-                print "EXTENDING node", node.Id, "to depth", depth+1
-                self.buildUniform(nleft, alpha, beta, depth=depth+1)
-                self.buildUniform(nright, alpha, beta, depth=depth+1)
-            else:
-                print "NOT EXTENDING node", node.Id, ": too few points"
-        else:
-            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
-            
-    def regressionLnlike(self):
-        lnlike = 0.0
-
-        # Precalculate terms
-        t2  = +0.5 * self.nu * np.log(self.nu * self.lamb)
-        t4b = np.log(gamma(0.5 * self.nu))
-        
-        for node in self.terminalNodes:
-            fxl, fyl = self.filter(node)
-            npts    = np.sum(fyl)
-            if npts == 0:
-                # Damn, this should not happen.
-                # DEBUG ME
-                continue
-            ymean   = np.mean(self.y[fyl])
-            ystd    = np.std(self.y[fyl])
-
-            # Random draws for mean-variance shift model
-            sigsq   = stats.invgauss.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
-            mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
-
-            # Terms that depend on the data moments
-            si      = (npts - 1) * ystd
-            ti      = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
-
-            # Calculation of the log likelihood (Chipman Eq 14)
-            t1      = -0.5 * npts * np.log(np.pi)
-            t3      = +0.5 * np.log(self.a / (npts + self.a))
-            t4      = np.log(gamma(0.5 * (npts + self.nu))) - t4b
-            t5      = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
-            lnlike += t1 + t2 + t3 + t4 + t5
-            print npts, ymean, ystd, lnlike
-
-        return lnlike
 
     # GROW step: randomly pick a terminal node and split into 2 new
     # ones by randomly assigning a splitting rule.  
@@ -151,7 +62,6 @@ class CartTree(object):
             parent.Left = None
             parent.Right = None
             return None, None
-
 
 
     # PRUNE step: randomly pick a parent of 2 terminal nodes and turn
@@ -278,6 +188,149 @@ class CartTree(object):
         includeY = np.all(includeX, axis=1)
         return includeX, includeY
 
+
+        
+    
+
+####
+#################
+####
+
+
+class BartProposal(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, tree):
+        prop = np.random.uniform()
+        if prop < 0.25:
+            print "# GROW",
+            tree.grow()
+        elif prop < 0.50:
+            print "# PRUNE",
+            tree.prune()
+        elif prop < 0.90:
+            print "# CHANGE",
+            tree.change()
+        else:
+            print "# SWAP",
+            tree.swap()
+
+class BartTree(BaseTree):
+    def __init__(self, X, y):
+        BaseTree.__init__(self, X, y)
+
+        # rescale y to lie between -0.5 and 0.5
+        self.y += np.min(self.y) # minimum = 0
+        self.y /= np.max(self.y) # maximum = 1
+        self.y -= 0.5            # range is -0.5 to 0.5
+
+        self.k     = 2
+        self.nu    = 3.0
+        self.q     = 0.90
+        self.m     = 200    # number of trees
+
+####
+#################
+####
+
+class CartProposal(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, tree):
+        prop = np.random.uniform()
+        if prop < 0.25:
+            print "# GROW",
+            tree.grow()
+        elif prop < 0.50:
+            print "# PRUNE",
+            tree.prune()
+        elif prop < 0.75:
+            print "# CHANGE",
+            tree.change()
+        else:
+            print "# SWAP",
+            tree.swap()
+        
+
+class CartTree(BaseTree):
+    # Describes the conditional distribution of y given X.  X is a
+    # vector of predictors.  Each terminal node has parameter Theta.
+    # 
+    # y|X has distribution f(y|Theta).
+
+    def __init__(self, X, y, 
+                 nu, lamb, mubar, a, 
+                 alpha=0.95, beta=1.0,
+                 min_samples_leaf=5):
+        BaseTree.__init__(self, X, y)
+
+        # How big of a tree do we want to make
+        self.nmin = min_samples_leaf
+
+        # Tuning parameters of the model
+        self.nu    = nu
+        self.lamb  = lamb
+        self.mubar = mubar
+        self.a     = a
+
+        # Build the tree
+        self.buildUniform(self.head, alpha, beta)
+
+    def buildUniform(self, node, alpha, beta, depth=0):
+        psplit = alpha * (1 + depth)**-beta
+        rand   = np.random.uniform()
+        if rand < psplit:
+            feature, threshold = self.prule(node)
+            if feature is None or threshold is None:
+                print "NO DATA LEFT, rejecting split"
+                return
+            nleft, nright = self.split(node, feature, threshold)
+            if nleft is not None and nright is not None:
+                print "EXTENDING node", node.Id, "to depth", depth+1
+                self.buildUniform(nleft, alpha, beta, depth=depth+1)
+                self.buildUniform(nright, alpha, beta, depth=depth+1)
+            else:
+                print "NOT EXTENDING node", node.Id, ": too few points"
+        else:
+            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
+            
+    def regressionLnlike(self):
+        lnlike = 0.0
+
+        # Precalculate terms
+        t2  = np.log((self.nu * self.lamb)**(0.5 * self.nu))
+        t4b = gammaln(0.5 * self.nu)
+        
+        for node in self.terminalNodes:
+            fxl, fyl = self.filter(node)
+            npts    = np.sum(fyl)
+            if npts == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+            ymean   = np.mean(self.y[fyl])
+            ystd    = np.std(self.y[fyl])
+
+            # Random draws for mean-variance shift model
+            sigsq   = stats.invgauss.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
+            mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
+
+            # Terms that depend on the data moments
+            si      = (npts - 1) * ystd
+            ti      = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+
+            # Calculation of the log likelihood (Chipman Eq 14)
+            t1      = -0.5 * npts * np.log(np.pi)
+            t3      = +0.5 * np.log(self.a / (npts + self.a))
+            t4      = gammaln(0.5 * (npts + self.nu)) - t4b
+            t5      = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
+            lnlike += t1 + t2 + t3 + t4 + t5
+            #print npts, ymean, ystd, lnlike
+
+        return lnlike
+
 class Node(object):
     NodeId = 0
 
@@ -307,7 +360,7 @@ if __name__ == "__main__":
     nfeatures = 20
     X    = np.random.random((nsamples, nfeatures)) - 0.5
     y    = np.random.random((nsamples)) - 0.5
-    tree = CartTree(X, y, 0.5, 1.0, 0.0, 1.0, alpha=0.99, beta=1.0/np.log(nsamples))
+    tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, alpha=0.99, beta=1.0/np.log(nsamples))
     prop = CartProposal()
     tree.printTree(tree.head)
     for i in range(10000):
