@@ -29,20 +29,23 @@ class BaseTree(object):
         feature = np.random.randint(self.n_features)
         idxX, idxY = self.filter(node)
         data = self.X[:, feature][idxX[:, feature]]
-        if len(data) == 0: return None, None
+        if len(data) == 0:
+            return None, None, None
         idxD = np.random.randint(len(data))
         threshold = data[idxD]
-        return feature, threshold
+        return feature, threshold, len(data)
 
     # GROW step: randomly pick a terminal node and split into 2 new
     # ones by randomly assigning a splitting rule.  
     def grow(self):
         nodes = self.terminalNodes
         rnode = nodes[np.random.randint(len(nodes))]
-        feature, threshold = self.prule(rnode)
+        feature, threshold, ndata_in_node = self.prule(rnode)
         if feature is None or threshold is None:
             return
         self.split(rnode, feature, threshold)
+
+        return rnode
 
     def split(self, parent, feature, threshold):
         # Threshold is of length self.n_features
@@ -73,16 +76,23 @@ class BaseTree(object):
     # Note: this updates the internal/terminal nodes.
     def prune(self):
         nodes    = self.terminalNodes
-        if len(nodes) == 0: return
+        if len(nodes) == 0:
+            return
         parents  = [x.Parent for x in nodes]
-        if len(parents) == 0: return
-        dparents = [x for x, y in collections.Counter(parents).items() if y == 2] # make sure there are 2 terminal children
-        if len(dparents) == 0: return
+        if len(parents) == 0:
+            return
+        # make sure there are 2 terminal children
+        dparents = [x for x, y in collections.Counter(parents).items() if y == 2]
+        if len(dparents) == 0:
+            return
         parent   = dparents[np.random.randint(len(dparents))]
+        # collapse node
         parent.Left = None
         parent.Right = None
         self.calcTerminalNodes()
         self.calcInternalNodes()
+
+        return parent
 
 
     # CHANGE step: randomly pick an internal node and randomly assign
@@ -192,18 +202,11 @@ class BaseTree(object):
         return includeX, includeY
 
 
-        
-    
-
-####
-#################
-####
-
-
 class BartProposal(proposals.Proposal):
     def __init__(self):
         self.pgrow = 0.5
-        self.operation = None
+        self._operation = None  # Last tree operations performed (Grow/Prune)
+        self._node = None  # Last node operated on
 
     def draw(self, current_tree):
         # make a copy since the grow/prune operations operate on the tree object in place
@@ -211,19 +214,40 @@ class BartProposal(proposals.Proposal):
 
         prop = np.random.uniform()
         if prop < self.pgrow:
-            new_tree.grow()
+            self._node = new_tree.grow()
             self.operation = 'grow'
         else:
-            new_tree.prune()
+            self._node = new_tree.prune()
             self.operation = 'prune'
 
         return new_tree
 
-    def logdensity(self, proposed_tree, current_tree):
-        # first compute probability of going from current_tree to proposed_tree
+    def logdensity(self, proposed_tree, current_tree, forward):
+        if not forward:
+            # only do calculation for forward transition, since factors cancel in MH ratio
+            return 0.0
+        # Compute ratio of prior distributions for the two trees. Do this here instead of in the Tree parameter object
+        # because many of the factors cancel in the Metropolis-Hastings ratio for this type of proposal.
+        alpha = current_tree.alpha
+        beta = current_tree.beta
+        depth = self._node.depth
+        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 + alpha / (1.0 + depth) ** beta) + \
+            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
+
+        # get log ratio of transition kernels
         if self.operation == 'grow':
             ntnodes = len(current_tree.terminalNodes)
-            nfeatures =
+            ntparents = len(proposed_tree.get_terminal_parents())
+            logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
+        elif self.operation == 'prune':
+            ntnodes = len(proposed_tree.terminalNodes)
+            ntparents = len(current_tree.get_terminal_parents())
+            logdensity = np.log(ntparents) - log_prior_ratio
+        else:
+            print 'Unknown proposal move.'
+            return 0.0
+
+        return logdensity
 
     def __call__(self, tree):
         prop = np.random.uniform()
@@ -391,9 +415,8 @@ class CartTree(BaseTree, steps.Parameter):
         return lnlike
 
     def logdensity(self, tree):
-        logprior = self.logprior(tree)
         loglik = self.loglik(tree)
-        return loglik + logprior
+        return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
 
 
 class Node(object):

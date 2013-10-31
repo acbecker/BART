@@ -144,8 +144,9 @@ class MetroStep(Step):
         """
 
         ## Accept the proposed value with min(1.0, exp(alpha)).
-        alpha = self._parameter.logdensity(proposed_value) - self._proposal.logdensity(current_value, proposed_value) \
-            - (self._parameter._log_posterior - self._proposal.logdensity(proposed_value, current_value))
+        alpha = self._parameter.logdensity(proposed_value) - \
+            self._proposal.logdensity(current_value, proposed_value, forward=True) \
+            - (self._parameter._log_posterior - self._proposal.logdensity(proposed_value, current_value, forward=False))
 
         self._alpha = min(1.0, math.exp(alpha))
 
