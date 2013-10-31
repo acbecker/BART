@@ -27,7 +27,7 @@ class BaseTree(object):
         psplit = alpha * (1 + depth)**-beta
         rand   = np.random.uniform()
         if rand < psplit:
-            feature, threshold = self.prule(node)
+            feature, threshold, ndata = self.prule(node)
             if feature is None or threshold is None:
                 print "NO DATA LEFT, rejecting split"
                 return
@@ -228,7 +228,7 @@ class BartProposal(proposals.Proposal):
         if prop < 0.50:
             print "# GROW",
             tree.grow()
-        else prop < 0.50:
+        else:
             print "# PRUNE",
             tree.prune()
 
@@ -237,7 +237,7 @@ class BartTree(BaseTree):
         BaseTree.__init__(self, X, y)
         self.k     = 2    # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
 
-        if False:
+        if True:
             sigma = np.std(self.y)
         else:
             regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
@@ -248,7 +248,7 @@ class BartTree(BaseTree):
         self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
         self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
 
-        qchi       = stats.chi2.interval(self.nu, self.q)[1]
+        qchi       = stats.chi2.interval(self.q, self.nu)[1]
         self.lamb  = sigma**2 * qchi / self.nu
         
         self.buildUniform(self.head, alpha, beta)
@@ -321,17 +321,19 @@ class CartTree(BaseTree, steps.Parameter):
 
     def __init__(self, X, y, nu, lamb, mubar, a, name, track=True, alpha=0.95, beta=1.0, min_samples_leaf=5):
         BaseTree.__init__(self, X, y, min_samples_leaf)
-        steps.Parameter.__init__(name, track)
 
         # Tuning parameters of the model
-        self.nu    = nu
-        self.lamb  = lamb
-        self.mubar = mubar
-        self.a     = a
-        self.alpha = alpha
-        self.beta = beta
-        self.mu = np.empty(1)
+        self.nu     = nu
+        self.lamb   = lamb
+        self.mubar  = mubar
+        self.a      = a
+        self.alpha  = alpha
+        self.beta   = beta
+        self.mu     = np.empty(1)
         self.sigsqr = 1.0
+
+        # Calls set_starting_value, which requires we have member variables defined
+        steps.Parameter.__init__(self, name, track)
 
     def set_starting_value(self):
         """
@@ -368,7 +370,7 @@ class CartTree(BaseTree, steps.Parameter):
         return logprior
 
     # NOTE: This part would likely benefit from numba or cython
-    def loglik(self, tree):
+    def loglik(self, tree=None):
         """
         Compute the marginal log-likelihood for a proposed tree model. This assumes that the only difference between the
         input tree and self is in the structure of the tree nodes. The prior and data are assumed to be the same. Note
@@ -378,6 +380,9 @@ class CartTree(BaseTree, steps.Parameter):
         @param tree: The proposed tree.
         @return: The log-likelihood of tree.
         """
+        if tree == None:
+            tree = self
+
         lnlike = 0.0
 
         # Precalculate terms
@@ -398,6 +403,7 @@ class CartTree(BaseTree, steps.Parameter):
 
             ymean = node.ybar
             yvar = node.yvar
+            npts = node.npts
 
             # Terms that depend on the data moments
             si = (npts - 1) * yvar
@@ -483,9 +489,9 @@ if __name__ == "__main__":
     tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, name=None, alpha=0.99, beta=1.0/np.log(nsamples))
     prop = CartProposal()
     tree.printTree(tree.head)
-    #for i in range(10000):
-    #    prop(tree)
-    #    print tree.regressionLnlike()
+    for i in range(10000):
+        prop(tree)
+        print tree.loglik()
 
     print "Terminal", [x.Id for x in tree.terminalNodes]
     print "Internal", [x.Id for x in tree.internalNodes]
