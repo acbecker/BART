@@ -3,6 +3,8 @@ import collections
 import scipy.stats as stats
 from scipy.special import gammaln
 import steps
+import proposals
+import copy
 
 ####
 #################
@@ -198,9 +200,30 @@ class BaseTree(object):
 ####
 
 
-class BartProposal(object):
+class BartProposal(proposals.Proposal):
     def __init__(self):
-        pass
+        self.pgrow = 0.5
+        self.operation = None
+
+    def draw(self, current_tree):
+        # make a copy since the grow/prune operations operate on the tree object in place
+        new_tree = copy.deepcopy(current_tree)
+
+        prop = np.random.uniform()
+        if prop < self.pgrow:
+            new_tree.grow()
+            self.operation = 'grow'
+        else:
+            new_tree.prune()
+            self.operation = 'prune'
+
+        return new_tree
+
+    def logdensity(self, proposed_tree, current_tree):
+        # first compute probability of going from current_tree to proposed_tree
+        if self.operation == 'grow':
+            ntnodes = len(current_tree.terminalNodes)
+            nfeatures =
 
     def __call__(self, tree):
         prop = np.random.uniform()
