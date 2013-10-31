@@ -24,13 +24,14 @@ class Proposal(object):
         """
         pass
 
-    def logdensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value, forward=True):
         """
         Method to return the logarithm of the probability of going from the current value to the proposed value
         of the parameter.
 
         :param proposed_value: The proposed value of the parameter.
         :param current_value:  The current value of the parameter.
+        :param forward: Boolean indicating whether to calculate the log-density for the forward transition.
         """
         pass
 
