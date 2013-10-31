@@ -120,72 +120,6 @@ class BaseTree(object):
 
         return dparents
 
-    # CHANGE step: randomly pick an internal node and randomly assign
-    # it a splitting rule.  NOT IMPLEMENTED
-    def change(self):
-        return
-        nodes = self.internalNodes
-        if len(nodes) == 0: return
-        rnode = nodes[np.random.randint(len(nodes))]
-        feature0, threshold0 = rnode.feature, rnode.threshold
-
-        # See if we get an acceptable new split
-        featureN, thresholdN = self.prule(rnode)
-        if featureN is None or thresholdN is None:
-            return
-        rnode.setThreshold(featureN, thresholdN)
-
-        # Hmm, do I want to descend down the whole tree to see the consequences of this?
-        fxl = self.filter(rnode.Left)
-        fxr = self.filter(rnode.Right)
-        if rnode.Left.npts < self.nmin or rnode.Right.npts < self.nmin:
-            rnode.setThreshold(feature0, threshold0) # Undo, unacceptable split
-
-        # Update node attributes
-        self.filter(rnode)
-
-    # SWAP step: randomly pick a parent-child pair that are both
-    # internal nodes.  Swap their splitting rules unless the other
-    # child has the identical rule, in which case swap the splitting
-    # rule of the parent with both children.  NOT IMPLEMENTED
-    def swap(self):
-        return
-        nodes  = self.internalNodes
-        if len(nodes) == 0: return
-        pnodes = list(set([n.Parent for n in nodes if n.Parent in nodes])) # Find an internal parent node with internal children
-        if len(pnodes) == 0: return 
-        pnode  = pnodes[np.random.randint(len(pnodes))]
-        lnode  = pnode.Left
-        rnode  = pnode.Right
-        # Both children have the same selection; modify both and return
-        if lnode.feature == rnode.feature and lnode.threshold == rnode.threshold:
-            pfeat   = pnode.feature
-            pthresh = pnode.threshold
-            cfeat   = lnode.feature
-            cthresh = lnode.threshold
-            pnode.setThreshold(cfeat, cthresh)
-            lnode.setThreshold(pfeat, pthresh)
-            rnode.setThreshold(pfeat, pthresh)
-            self.filter(pnode)
-            self.filter(lnode)
-            self.filter(rnode)
-            return pnode, lnode, rnode
-
-        # Choose one of them that is also an internal node; modify that one only
-        cnodes = []
-        if lnode in nodes: cnodes.append(lnode)
-        if rnode in nodes: cnodes.append(rnode)
-        cnode   = cnodes[np.random.randint(len(cnodes))]
-        pfeat   = pnode.feature
-        pthresh = pnode.threshold
-        cfeat   = cnode.feature
-        cthresh = cnode.threshold
-        cnode.setThreshold(pfeat, pthresh)
-        pnode.setThreshold(cfeat, cthresh)
-        self.filter(pnode)
-        self.filter(cnode)
-        
-
     def printTree(self, node):
         if node is None:
             return
@@ -291,18 +225,12 @@ class BartProposal(proposals.Proposal):
 
     def __call__(self, tree):
         prop = np.random.uniform()
-        if prop < 0.25:
+        if prop < 0.50:
             print "# GROW",
             tree.grow()
-        elif prop < 0.50:
+        else prop < 0.50:
             print "# PRUNE",
             tree.prune()
-        elif prop < 0.90:
-            print "# CHANGE",
-            tree.change()
-        else:
-            print "# SWAP",
-            tree.swap()
 
 class BartTree(BaseTree):
     def __init__(self, X, y, alpha, beta):
@@ -377,18 +305,12 @@ class CartProposal(object):
 
     def __call__(self, tree):
         prop = np.random.uniform()
-        if prop < 0.25:
+        if prop < 0.50:
             print "# GROW",
             tree.grow()
-        elif prop < 0.50:
+        else:
             print "# PRUNE",
             tree.prune()
-        elif prop < 0.75:
-            print "# CHANGE",
-            tree.change()
-        else:
-            print "# SWAP",
-            tree.swap()
         
 
 class CartTree(BaseTree, steps.Parameter):
