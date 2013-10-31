@@ -75,14 +75,7 @@ class BaseTree(object):
     #
     # Note: this updates the internal/terminal nodes.
     def prune(self):
-        nodes    = self.terminalNodes
-        if len(nodes) == 0:
-            return
-        parents  = [x.Parent for x in nodes]
-        if len(parents) == 0:
-            return
-        # make sure there are 2 terminal children
-        dparents = [x for x, y in collections.Counter(parents).items() if y == 2]
+        dparents = self.get_terminal_parents()
         if len(dparents) == 0:
             return
         parent   = dparents[np.random.randint(len(dparents))]
@@ -94,6 +87,18 @@ class BaseTree(object):
 
         return parent
 
+    # Find the parents of each pair of terminal nodes.
+    def get_terminal_parents(self):
+        nodes = self.terminalNodes
+        if len(nodes) == 0:
+            return
+        parents = [x.Parent for x in nodes]
+        if len(parents) == 0:
+            return
+        # make sure there are 2 terminal children
+        dparents = [x for x, y in collections.Counter(parents).items() if y == 2]
+
+        return dparents
 
     # CHANGE step: randomly pick an internal node and randomly assign
     # it a splitting rule.  
