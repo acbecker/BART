@@ -327,6 +327,8 @@ class CartTree(BaseTree, steps.Parameter):
         self.a     = a
         self.alpha = alpha
         self.beta = beta
+        self.mu = np.empty(1)
+        self.sigsqr = 1.0
 
     def set_starting_value(self):
         """
@@ -383,8 +385,10 @@ class CartTree(BaseTree, steps.Parameter):
     # NOTE: This part would likely benefit from numba or cython
     def loglik(self, tree):
         """
-        Compute the log-likelihood for a proposed tree model. This assumes that the only difference between the input
-        tree and self is in the structure of the tree nodes. The prior and data are assumed to be the same.
+        Compute the marginal log-likelihood for a proposed tree model. This assumes that the only difference between the
+        input tree and self is in the structure of the tree nodes. The prior and data are assumed to be the same. Note
+        that the return value is the log-likelihood after marginalizing over mean value parameters in each terminal
+        node.
 
         @param tree: The proposed tree.
         @return: The log-likelihood of tree.
@@ -422,6 +426,28 @@ class CartTree(BaseTree, steps.Parameter):
     def logdensity(self, tree):
         loglik = self.loglik(tree)
         return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
+
+    def update_mu(self):
+        """
+        Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
+        current tree configuration, variance (sigma ** 2), and data.
+        """
+        self.mu = np.empty(len(self.terminalNodes))
+        n_idx = 0
+        for node in self.terminalNodes:
+            x_in_node, y_in_node = self.filter(node)  # boolean values
+            ny_in_node = np.sum(y_in_node)
+            if ny_in_node == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+            ymean_in_node = np.mean(self.y[y_in_node])
+
+            post_var = 1.0 / (1.0 / self.prior_mu_var + ny_in_node / self.sigsqr)
+            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr
+
+            self.mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
+            n_idx += 1
 
 
 class Node(object):
