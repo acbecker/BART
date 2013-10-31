@@ -46,7 +46,7 @@ class BaseTree(object):
         then choose the split value uniformly from the set of
         available observed values"""
         feature = np.random.randint(self.n_features)
-        idxX, idxY = self.filter(node)
+        idxX = self.filter(node)
         data = self.X[:, feature][idxX[:, feature]]
         if len(data) == 0:
             return None, None, None
@@ -72,11 +72,11 @@ class BaseTree(object):
         nright = Node(parent, False) # Add right node; it registers with parent
         parent.setThreshold(feature, threshold)
 
-        fxl, fyl = self.filter(nleft)
-        fxr, fyr = self.filter(nright)
+        fxl = self.filter(nleft)
+        fxr = self.filter(nright)
         
         # only split if it yields at least nmin points per child
-        if np.sum(fyl) >= self.nmin and np.sum(fyr) >= self.nmin:
+        if nleft.npts >= self.nmin and nright.npts >= self.nmin:
             self.calcTerminalNodes()
             self.calcInternalNodes()
             return nleft, nright
@@ -134,9 +134,9 @@ class BaseTree(object):
         rnode.setThreshold(featureN, thresholdN)
 
         # Hmm, do I want to descend down the whole tree to see the consequences of this?
-        fxl, fyl = self.filter(rnode.Left)
-        fxr, fyr = self.filter(rnode.Right)
-        if np.sum(fyl) < self.nmin or np.sum(fyr) < self.nmin:
+        fxl = self.filter(rnode.Left)
+        fxr = self.filter(rnode.Right)
+        if rnode.Left.npts < self.nmin or rnode.Right.npts < self.nmin:
             rnode.setThreshold(feature0, threshold0) # Undo, unacceptable split
 
 
@@ -223,7 +223,13 @@ class BaseTree(object):
                 includeX[:,n.Parent.feature] &= self.X[:,n.Parent.feature] >   n.Parent.threshold
             n = n.Parent
         includeY = np.all(includeX, axis=1)
-        return includeX, includeY
+
+        # Set the node values
+        node.ybar = np.mean(self.y[includeY])
+        node.ysig = np.std(self.y[includeY])
+        node.npts = np.sum(includeY)
+
+        return includeX
 
 
 class BartProposal(proposals.Proposal):
@@ -346,8 +352,8 @@ class BartTrees(object):
             mtrainfits[i] = mfits[1]
             mtestfits[j] = mfits[2]
 
-        eps = yData[:,1] - mtotalfits
-
+            eps = yData[:,1] - mtotalfits
+        
             prop(tree) # Modify tree
             lnlikes.append(tree.regressionLnlike())
         return np.sum(lnlikes)
@@ -421,9 +427,9 @@ class CartTree(BaseTree, steps.Parameter):
             logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
 
             # get number of features and data points that are available for the splitting rule
-            fxl, fyl = tree.filter(node)
+            fxl = tree.filter(node)
             nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
-            npts = np.sum(fyl)
+            npts = node.npts
             # probability of split is discrete uniform over set of available features and data points
             logprior += -np.log(nfeatures) - np.log(npts)
 
@@ -452,15 +458,14 @@ class CartTree(BaseTree, steps.Parameter):
         #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
         
         for node in tree.terminalNodes:
-            fxl, fyl = tree.filter(node)
-            npts = np.sum(fyl)
-            if npts == 0:
+            fxl = tree.filter(node)
+            if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
                 continue
 
-            ymean = np.mean(self.y[fyl])
-            yvar = np.var(self.y[fyl], ddof=1)
+            ymean = node.ybar
+            yvar = node.ysig
 
             # Terms that depend on the data moments
             si = (npts - 1) * yvar
@@ -488,13 +493,13 @@ class CartTree(BaseTree, steps.Parameter):
         self.mu = np.empty(len(self.terminalNodes))
         n_idx = 0
         for node in self.terminalNodes:
-            x_in_node, y_in_node = self.filter(node)  # boolean values
-            ny_in_node = np.sum(y_in_node)
-            if ny_in_node == 0:
+            x_in_node = self.filter(node)  # boolean values
+            if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
                 continue
-            ymean_in_node = np.mean(self.y[y_in_node])
+            ny_in_node = node.npts
+            ymean_in_node = node.ybar
 
             post_var = 1.0 / (1.0 / self.prior_mu_var + ny_in_node / self.sigsqr)
             post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr
@@ -510,7 +515,7 @@ class Node(object):
         self.Id        = Node.NodeId
         Node.NodeId   += 1
 
-        self.Parent    = parent # feture and threshold reside in the parent
+        self.Parent    = parent # feature and threshold reside in the parent
         self.Left      = None   # data[:, feature] <= threshold
         self.Right     = None   # data[:, feature] > threshold
         self.setThreshold(None, None)
@@ -525,18 +530,25 @@ class Node(object):
         else:
             self.depth = 0
 
+        # Moments of the data that end up in this bin
+        self.ybar = 0.0
+        self.ysig = 0.0
+        self.npts = 0
+
     # NOTE: the parent carries the threshold
     def setThreshold(self, feature, threshold):
         self.feature = feature
         self.threshold = threshold
 
 
+        
+
 if __name__ == "__main__":
     nsamples  = 1000
     nfeatures = 20
     X    = np.random.random((nsamples, nfeatures)) - 0.5
     y    = np.random.random((nsamples)) - 0.5
-    tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, alpha=0.99, beta=1.0/np.log(nsamples))
+    tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, name=None, alpha=0.99, beta=1.0/np.log(nsamples))
     prop = CartProposal()
     tree.printTree(tree.head)
     #for i in range(10000):
