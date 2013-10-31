@@ -44,7 +44,8 @@ class BaseTree(object):
     def prule(self, node):
         """Implement a uniform draw from the features to split on, and
         then choose the split value uniformly from the set of
-        available observed values"""
+        available observed values.  NOTE: do not change the node
+        attributes here since this may be rejected"""
         feature = np.random.randint(self.n_features)
         idxX = self.filter(node)
         data = self.X[:, feature][idxX[:, feature]]
@@ -120,8 +121,9 @@ class BaseTree(object):
         return dparents
 
     # CHANGE step: randomly pick an internal node and randomly assign
-    # it a splitting rule.  
+    # it a splitting rule.  NOT IMPLEMENTED
     def change(self):
+        return
         nodes = self.internalNodes
         if len(nodes) == 0: return
         rnode = nodes[np.random.randint(len(nodes))]
@@ -139,12 +141,15 @@ class BaseTree(object):
         if rnode.Left.npts < self.nmin or rnode.Right.npts < self.nmin:
             rnode.setThreshold(feature0, threshold0) # Undo, unacceptable split
 
+        # Update node attributes
+        self.filter(rnode)
 
     # SWAP step: randomly pick a parent-child pair that are both
     # internal nodes.  Swap their splitting rules unless the other
     # child has the identical rule, in which case swap the splitting
-    # rule of the parent with both children
+    # rule of the parent with both children.  NOT IMPLEMENTED
     def swap(self):
+        return
         nodes  = self.internalNodes
         if len(nodes) == 0: return
         pnodes = list(set([n.Parent for n in nodes if n.Parent in nodes])) # Find an internal parent node with internal children
@@ -161,6 +166,9 @@ class BaseTree(object):
             pnode.setThreshold(cfeat, cthresh)
             lnode.setThreshold(pfeat, pthresh)
             rnode.setThreshold(pfeat, pthresh)
+            self.filter(pnode)
+            self.filter(lnode)
+            self.filter(rnode)
             return pnode, lnode, rnode
 
         # Choose one of them that is also an internal node; modify that one only
@@ -174,6 +182,8 @@ class BaseTree(object):
         cthresh = cnode.threshold
         cnode.setThreshold(pfeat, pthresh)
         pnode.setThreshold(cfeat, cthresh)
+        self.filter(pnode)
+        self.filter(cnode)
         
 
     def printTree(self, node):
