@@ -360,7 +360,16 @@ class BartTreeParameter(steps.Parameter):
         qchi       = stats.chi2.interval(self.nu, self.q)[1]
         self.lamb  = sigma ** 2 * qchi / self.nu  # scale parameter for error variance scaled inverse-chi-square prior
 
+        # Must set this manually before running the MCMC sampler. Necessary because log-likelihood depends on the value
+        # of sigma^2.
+        self.sigsqr = None  # the instance of BartVariance class for this model.
+
     def set_starting_value(self):
+        try:
+            self.sigsqr is not None
+        except ValueError:
+            "Value of error variance is not set."
+
         self.value.buildUniform(self.value.head, self.alpha, self.beta)
 
     def logprior(self, tree):
@@ -436,6 +445,56 @@ class BartTreeParameter(steps.Parameter):
     def logdensity(self, tree):
         loglik = self.loglik(tree)
         return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
+
+
+class BartMeanParameter(steps.Parameter):
+
+    def __init__(self, name, mtrees, track=True):
+        super(BartMeanParameter, self).__init__(name, track)
+        # Set prior parameters
+        self.mubar = 0.0  # prior mean
+        self.mtrees = mtrees  # the number of trees in the BART model
+        self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
+        self.prior_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
+
+        self.value = np.empty(1)
+        # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
+        # values of the other parameters.
+        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
+        self.sigsqr = None  # the instance of BartVariance class for this model
+
+    def set_starting_value(self, tree):
+        try:
+            self.tree is not None
+        except ValueError:
+            "Tree configuration is not set."
+        try:
+            self.sigsqr is not None
+        except ValueError:
+            "Value of error variance is not set."
+
+        self.value = self.random_posterior()
+
+    def random_posterior(self):
+        """
+        Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
+        current tree configuration, variance (sigma ** 2), and data.
+        """
+        self.value = np.empty(len(self.tree.terminalNodes))
+        n_idx = 0
+        for node in self.tree.terminalNodes:
+            if node.npts == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+            ny_in_node = node.npts
+            ymean_in_node = node.ybar
+
+            post_var = 1.0 / (1.0 / self.prior_var + ny_in_node / self.sigsqr.value)
+            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr.value
+
+            self.value[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
+            n_idx += 1
 
 
 class CartTree(BaseTree, steps.Parameter):
