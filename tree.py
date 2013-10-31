@@ -236,7 +236,7 @@ class BaseTree(object):
 
         # Set the node values
         node.ybar = np.mean(self.y[includeY])
-        node.ysig = np.std(self.y[includeY])
+        node.yvar = np.std(self.y[includeY])**2
         node.npts = np.sum(includeY)
 
         return includeX
@@ -475,7 +475,7 @@ class CartTree(BaseTree, steps.Parameter):
                 continue
 
             ymean = node.ybar
-            yvar = node.ysig
+            yvar = node.yvar
 
             # Terms that depend on the data moments
             si = (npts - 1) * yvar
@@ -542,7 +542,7 @@ class Node(object):
 
         # Moments of the data that end up in this bin
         self.ybar = 0.0
-        self.ysig = 0.0
+        self.yvar = 0.0
         self.npts = 0
 
     # NOTE: the parent carries the threshold
