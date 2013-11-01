@@ -5,6 +5,7 @@ from scipy.special import gammaln
 import steps
 import proposals
 import copy
+from sklearn import linear_model
 
 ####
 #################
@@ -369,7 +370,131 @@ class CartProposal(object):
         else:
             #print "# PRUNE",
             tree.prune()
-        
+        elif prop < 0.75:
+            print "# CHANGE",
+            tree.change()
+        else:
+            print "# SWAP",
+            tree.swap()
+
+
+class BartTreeParameter(steps.Parameter):
+
+    def __init__(self, name, X, y, alpha=0.95, beta=2.0, track=True):
+        """
+        Constructor for Bart tree configuration parameter class. The tree configuration is treated as a Parameter object
+        to be sampled using a MCMC sampler. The 'value' of this parameter is an instance of BaseTree, which is updated
+        throughout the MCMC sampler.
+
+        @param name: A string containing the name of the Tree. Used as a key to identify this particular tree.
+        @param X: The predictors, an array of shape (n,p).
+        @param y: The array of response values, of size n.
+        @param alpha: Prior parameter on the tree shape, same the notation of Chipman et al. (2010).
+        @param beta: Prior parameter controling the tree depth, same notation of Chipman et al. (2010).
+        @param track: When this parameter is tracked (i.e., whether the values are saved) in the MCMC sampler.
+        """
+        super(BartTreeParameter, self).__init__(name, track)
+
+        self.X = X
+        self.y = y
+
+        self.value = BaseTree(X, y)  # parameter 'value' is the tree configuration
+
+        # Setup up the prior distribution
+        self.k = 2  # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
+        self.mubar = 0.0  # shrink values of mu for each terminal node toward zero
+
+        if False:
+            sigma = np.std(self.y)
+        else:
+            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
+            fit       = regressor.fit(X, y)
+            sigma     = np.std(fit.predict(X) - y)
+        # These values of sigma1, sigma2 should be used to predict nu
+        # and q.
+        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+
+        qchi       = stats.chi2.interval(self.nu, self.q)[1]
+        self.lamb  = sigma ** 2 * qchi / self.nu  # scale parameter for error variance scaled inverse-chi-square prior
+
+    def set_starting_value(self):
+        self.value.buildUniform(self.value.head, self.alpha, self.beta)
+
+    def logprior(self, tree):
+        """
+        Compute the log-prior for a input tree configuration. This assumes that the only difference between the input
+        tree and self is in the structure of the tree nodes. The prior distribution is assumed to be the same.
+
+        @param tree: The proposed tree configuration object.
+        @return: The log-prior density of tree.
+        """
+        logprior = 0.0
+        # first get prior for terminal nodes
+        for node in tree.terminalNodes:
+            # probability of not splitting
+            logprior += np.log(1.0 - self.alpha / (1.0 + node.depth) ** self.beta)
+
+        # now get contribution from interior nodes
+        for node in tree.internalNodes:
+            # probability of splitting this node
+            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
+
+            # get number of features and data points that are available for the splitting rule
+            fxl, fyl = tree.filter(node)
+            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
+            npts = np.sum(fyl)
+            # probability of split is discrete uniform over set of available features and data points
+            logprior += -np.log(nfeatures) - np.log(npts)
+
+        return logprior
+
+    # NOTE: This part would likely benefit from numba or cython
+    def loglik(self, tree):
+        """
+        Compute the marginal log-likelihood for an input tree configuration. This assumes that the only difference
+        between the input tree and self is in the structure of the tree nodes. The prior and data are assumed to be the
+        same. Note that the return value is the log-likelihood after marginalizing over mean value parameters in each
+        terminal node.
+
+        @param tree: The input tree configuration object.
+        @return: The marginal log-likelihood of the tree configuration.
+        """
+        lnlike = 0.0
+
+        # Precalculate terms
+        t2  = np.log((self.nu * self.lamb)**(0.5 * self.nu))
+        t4b = gammaln(0.5 * self.nu)
+
+        for node in tree.terminalNodes:
+
+            npts = node.npts
+            if npts == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+
+            ymean = node.ybar
+            yvar = node.yvar * npts / (npts - 1)  # numpy.var normalizes by 1 / N, not 1 / (N-1)
+
+            # Terms that depend on the data moments
+            si = (npts - 1) * yvar
+            ti = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+
+            # Calculation of the log likelihood (Chipman Eq 14)
+            t1 = -0.5 * npts * np.log(np.pi)
+            t3 = +0.5 * np.log(self.a / (npts + self.a))
+            t4 = gammaln(0.5 * (npts + self.nu)) - t4b
+            t5 = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
+            lnlike += t1 + t2 + t3 + t4 + t5
+            #print npts, ymean, yvar, lnlike
+
+        return lnlike
+
+    def logdensity(self, tree):
+        loglik = self.loglik(tree)
+        return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
+
 
 class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
