@@ -4,12 +4,43 @@ import scipy.stats as stats
 from scipy.special import gammaln
 import steps
 import proposals
+import samplers
 import copy
 from sklearn import linear_model
 
-####
-#################
-####
+
+class Node(object):
+    NodeId = 0
+
+    def __init__(self, parent, is_left):
+        self.Id        = Node.NodeId
+        Node.NodeId   += 1
+
+        self.Parent    = parent # feature and threshold reside in the parent
+        self.Left      = None   # data[:, feature] <= threshold
+        self.Right     = None   # data[:, feature] > threshold
+        self.setThreshold(None, None)
+
+        if self.Parent is not None:
+            self.is_left = is_left
+            if self.is_left:
+                parent.Left = self
+            else:
+                parent.Right = self
+            self.depth = self.Parent.depth + 1
+        else:
+            self.depth = 0
+
+        # Moments of the data that end up in this bin
+        self.ybar = 0.0
+        self.yvar = 0.0
+        self.npts = 0
+
+    # NOTE: the parent carries the threshold
+    def setThreshold(self, feature, threshold):
+        self.feature = feature
+        self.threshold = threshold
+
 
 class BaseTree(object):
     def __init__(self, X, y, min_samples_leaf=5):
@@ -177,211 +208,9 @@ class BaseTree(object):
         return includeX, includeY
 
 
-class BartProposal(proposals.Proposal):
-    def __init__(self):
-        self.pgrow = 0.5
-        self._operation = None  # Last tree operations performed (Grow/Prune)
-        self._node = None  # Last node operated on
-
-    def draw(self, current_tree):
-        # make a copy since the grow/prune operations operate on the tree object in place
-        new_tree = copy.deepcopy(current_tree)
-
-        prop = np.random.uniform()
-        if prop < self.pgrow:
-            self._node = new_tree.grow()
-            self._operation = 'grow'
-        else:
-            self._node = new_tree.prune()
-            self._operation = 'prune'
-
-        return new_tree
-
-    def logdensity(self, proposed_tree, current_tree, forward):
-        if not forward:
-            # only do calculation for forward transition, since factors cancel in MH ratio
-            return 0.0
-        # Compute ratio of prior distributions for the two trees. Do this here instead of in the Tree parameter object
-        # because many of the factors cancel in the Metropolis-Hastings ratio for this type of proposal.
-        alpha = current_tree.alpha
-        beta = current_tree.beta
-        depth = self._node.depth
-        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 + alpha / (1.0 + depth) ** beta) + \
-            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
-
-        # get log ratio of transition kernels
-        if self._operation == 'grow':
-            ntnodes = len(current_tree.terminalNodes)
-            ntparents = len(proposed_tree.get_terminal_parents())
-            logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
-        elif self._operation == 'prune':
-            ntnodes = len(proposed_tree.terminalNodes)
-            ntparents = len(current_tree.get_terminal_parents())
-            logdensity = np.log(ntparents) - log_prior_ratio
-        else:
-            print 'Unknown proposal move.'
-            return 0.0
-
-        return logdensity
-
-    def __call__(self, tree):
-        prop = np.random.uniform()
-        if prop < 0.50:
-            #print "# GROW",
-            tree.grow()
-        else:
-            #print "# PRUNE",
-            tree.prune()
-
-
-class BartTree(BaseTree):
-    def __init__(self, X, y, alpha, beta, nu, q, a):
-        BaseTree.__init__(self, X, y)
-
-        self.buildUniform(self.head, alpha, beta)
-
-class BartTrees(object):
-    def __init__(self, X, y, m=200, alpha=0.95, beta=2.0):
-        self.X = X
-        self.y = y
-        self.n_features = X.shape[1]
-        self.n_samples  = X.shape[0]
-
-        if True:
-            sigma = np.std(self.y)
-        else:
-            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
-            fit       = regressor.fit(X, y)
-            sigma     = np.mean(fit.predict(X) - y)
-        self.sigsqr = sigma**2
-
-        # Hyperparameters for growing the trees.  Keep them more
-        # compact than CART since there are more of them
-        self.alpha = alpha
-        self.beta = beta
-
-        # Rescale y to lie between -0.5 and 0.5
-        self.y -= self.y.min() # minimum = 0
-        self.y /= self.y.max() # maximum = 1
-        self.y -= 0.5          # range is -0.5 to 0.5
-
-        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
-        qchi       = stats.chi2.interval(self.q, self.nu)[1]
-        self.lamb  = self.sigsqr * qchi / self.nu
- 
-        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
-        self.m = m       # Number of trees
-
-        self.mumu  = 0.0
-        self.sigmu = 0.5 / self.k / np.sqrt(self.m)  
-        self.a     = 1.0 / (self.sigmu**2)
-
-        self.trees = []
-        for m in range(self.m):
-            self.trees.append(BartTree(self.X, self.y, self.alpha, self.beta, self.nu, self.q, self.a))
-
-    @staticmethod
-    def node_mu(tree):
-        ybarmap = np.zeros(tree.n_samples)
-        for node in tree.terminalNodes:
-            # NOTE: this should grab the model parameters, not the empirical means
-            y_in_node = tree.filter(node)[1]
-            assert(np.all(ybarmap[y_in_node] == 0.0))
-            ybarmap[y_in_node] = node.ybar
-        return ybarmap
-
-    def calcResids(self):
-        node_mus = np.zeros((self.n_samples, self.m))
-        for m in range(self.m):
-            node_mus[:,m] = self.node_mu(self.trees[m])
-
-        treesum = np.sum(node_mus, axis=1)
-        for m in range(self.m):
-            resids = self.y - treesum + node_mus[:,m]
-
-            # Update
-            self.trees[m].y = resids
-
-            # Proposal updates the tree
-            # TBD
-
-            # Updated tree sum
-            pred = self.node_mu(self.trees[m])
-            treesum += (pred - node_mus[:,m])
-
-            # Make sure the node_mus matrix is updated along with the tree
-            node_mus[:,m] = pred
-
-        return 
-
-
-    def regressionLnlike(self):
-        # IGNORE ME
-        prop = BartProposal()
-
-        allfit = np.mean(self.y) * np.ones(self.n_samples)
-        for m in range(self.m):
-            tree = self.trees[m]
-
-            # For every input data point, we need to find what
-            # terminal node a data point ends up in, and then take its
-            # mean and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit -= ytemp
-            resid   = tree.y - allfit
-            tree.y  = resid
-
-            # Modify tree
-            prop(tree)
-
-            # Reset all the bottom node mus; note the variance is kept the same
-            for node in tree.terminalNodes:
-                b      = node.npts / self.sigsqr
-                postmu = b * node.ybar / (self.a + b)
-                postsd = 1.0 / np.sqrt(self.a + b)
-                nodemu = postmu + postsd * np.random.uniform()
-                node.ybar = nodemu
-
-            # Again, For every input data point, find what terminal
-            # node a data point ends up in and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit += ytemp
-        #import pdb; pdb.set_trace()
-        print allfit
-        rss = np.sum((self.y - allfit)**2)
-        #sigmasq = (self.nu * self.lamb + rss) / stats.gamma.rvs(0.5 * (self.nu + self.n_samples), 0.5)
-        
-        print rss
-        #return sigmasq
-
-####
-#################
-####
-
-class CartProposal(object):
-    def __init__(self):
-        pass
-
-    def __call__(self, tree):
-        prop = np.random.uniform()
-        if prop < 0.50:
-            #print "# GROW",
-            tree.grow()
-        else:
-            #print "# PRUNE",
-            tree.prune()
-        elif prop < 0.75:
-            print "# CHANGE",
-            tree.change()
-        else:
-            print "# SWAP",
-            tree.swap()
-
-
 class BartTreeParameter(steps.Parameter):
 
-    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, track=True):
+    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, prior_mu=0.0, prior_var=2.0, track=True):
         """
         Constructor for Bart tree configuration parameter class. The tree configuration is treated as a Parameter object
         to be sampled using a MCMC sampler. The 'value' of this parameter is an instance of BaseTree, which is updated
@@ -407,7 +236,8 @@ class BartTreeParameter(steps.Parameter):
         self.mubar = 0.0  # shrink values of mu for each terminal node toward zero
         self.mtrees = mtrees  # the number of trees in the BART model
         self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
-        self.prior_mu_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
+        self.mubar = prior_mu
+        self.prior_mu_var = prior_var
 
         self.alpha = alpha
         self.beta = beta
@@ -614,10 +444,198 @@ class BartVariance(steps.Parameter):
         return new_sigsqr
 
 
+class BartProposal(proposals.Proposal):
+    def __init__(self):
+        self.pgrow = 0.5
+        self._operation = None  # Last tree operations performed (Grow/Prune)
+        self._node = None  # Last node operated on
+
+    def draw(self, current_tree):
+        # make a copy since the grow/prune operations operate on the tree object in place
+        new_tree = copy.deepcopy(current_tree)
+
+        prop = np.random.uniform()
+        if prop < self.pgrow:
+            self._node = new_tree.grow()
+            self._operation = 'grow'
+        else:
+            self._node = new_tree.prune()
+            self._operation = 'prune'
+
+        return new_tree
+
+    def logdensity(self, proposed_tree, current_tree, forward):
+        if not forward:
+            # only do calculation for forward transition, since factors cancel in MH ratio
+            return 0.0
+        # Compute ratio of prior distributions for the two trees. Do this here instead of in the Tree parameter object
+        # because many of the factors cancel in the Metropolis-Hastings ratio for this type of proposal.
+        alpha = current_tree.alpha
+        beta = current_tree.beta
+        depth = self._node.depth
+        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 + alpha / (1.0 + depth) ** beta) + \
+            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
+
+        # get log ratio of transition kernels
+        if self._operation == 'grow':
+            ntnodes = len(current_tree.terminalNodes)
+            ntparents = len(proposed_tree.get_terminal_parents())
+            logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
+        elif self._operation == 'prune':
+            ntnodes = len(proposed_tree.terminalNodes)
+            ntparents = len(current_tree.get_terminal_parents())
+            logdensity = np.log(ntparents) - log_prior_ratio
+        else:
+            print 'Unknown proposal move.'
+            return 0.0
+
+        return logdensity
+
+    def __call__(self, tree):
+        prop = np.random.uniform()
+        if prop < 0.50:
+            #print "# GROW",
+            tree.grow()
+        else:
+            #print "# PRUNE",
+            tree.prune()
+
+
+class BartStep(object):
+    def __init__(self, name, X, y, m=200, alpha=0.95, beta=2.0, track=True):
+
+        # TODO: Move a lot of this setup to a BartSampler class
+
+        self.X = X
+        self.y = y
+        self.n_features = X.shape[1]
+        self.n_samples  = X.shape[0]
+
+        # Hyperparameters for growing the trees.  Keep them more
+        # compact than CART since there are more of them
+        self.alpha = alpha
+        self.beta = beta
+
+        # store original y range so we can transform back when making predictions
+        self.ymin = self.y.min()
+        self.ymax = self.y.max()
+
+        # Rescale y to lie between -0.5 and 0.5
+        self.y -= self.ymin # minimum = 0
+        self.y /= self.ymax # maximum = 1
+        self.y -= 0.5          # range is -0.5 to 0.5
+
+        ##### TODO: Pretty sure this goes with the variance parameter object
+        if True:
+            sigma = np.std(self.y)
+        else:
+            regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
+            fit       = regressor.fit(X, y)
+            sigma     = np.mean(fit.predict(X) - y)
+        self.sigsqr = sigma**2
+
+        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+        qchi       = stats.chi2.interval(self.q, self.nu)[1]
+        self.lamb  = self.sigsqr * qchi / self.nu
+ 
+        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
+        self.m = m       # Number of trees
+        self.prior_mu  = 0.0  # prior mean of mu values for terminal nodes
+        self.prior_mu_var = 1.0 / (4.0 * self.k * self.k * self.mtrees)  # prior variance of mu values
+
+        # Build the ensemble of tree configurations and mu values for the terminal nodes
+        self.trees = []
+        self.mus = []
+        for m in range(self.m):
+            bname = 'BART ' + str(m + 1)
+            mname = 'Mu ' + str(m + 1)
+            self.trees.append(BartTreeParameter(bname, self.X, self.y, self.m, self.alpha, self.beta, self.prior_mu,
+                self.prior_var))
+            self.mus.append(BartMeanParameter(mname, self.m))
+
+    @staticmethod
+    def node_mu(tree):
+        ybarmap = np.zeros(tree.n_samples)
+        for node in tree.terminalNodes:
+            # NOTE: this should grab the model parameters, not the empirical means
+            y_in_node = tree.filter(node)[1]
+            assert(np.all(ybarmap[y_in_node] == 0.0))
+            ybarmap[y_in_node] = node.ybar
+        return ybarmap
+
+    def calcResids(self):
+        node_mus = np.zeros((self.n_samples, self.m))
+        for m in range(self.m):
+            node_mus[:,m] = self.node_mu(self.trees[m])
+
+        treesum = np.sum(node_mus, axis=1)
+        for m in range(self.m):
+            resids = self.y - treesum + node_mus[:,m]
+
+            # Update
+            self.trees[m].y = resids
+
+            # Proposal updates the tree
+            # TBD
+
+            # Updated tree sum
+            pred = self.node_mu(self.trees[m])
+            treesum += (pred - node_mus[:,m])
+
+            # Make sure the node_mus matrix is updated along with the tree
+            node_mus[:,m] = pred
+
+        return 
+
+
+    def regressionLnlike(self):
+        # IGNORE ME
+        prop = BartProposal()
+
+        allfit = np.mean(self.y) * np.ones(self.n_samples)
+        for m in range(self.m):
+            tree = self.trees[m]
+
+            # For every input data point, we need to find what
+            # terminal node a data point ends up in, and then take its
+            # mean and put it in ytemp
+            ytemp   = self.node_mu(tree)
+            allfit -= ytemp
+            resid   = tree.y - allfit
+            tree.y  = resid
+
+            # Modify tree
+            prop(tree)
+
+            # Reset all the bottom node mus; note the variance is kept the same
+            for node in tree.terminalNodes:
+                b      = node.npts / self.sigsqr
+                postmu = b * node.ybar / (self.a + b)
+                postsd = 1.0 / np.sqrt(self.a + b)
+                nodemu = postmu + postsd * np.random.uniform()
+                node.ybar = nodemu
+
+            # Again, For every input data point, find what terminal
+            # node a data point ends up in and put it in ytemp
+            ytemp   = self.node_mu(tree)
+            allfit += ytemp
+        #import pdb; pdb.set_trace()
+        print allfit
+        rss = np.sum((self.y - allfit)**2)
+        #sigmasq = (self.nu * self.lamb + rss) / stats.gamma.rvs(0.5 * (self.nu + self.n_samples), 0.5)
+        
+        print rss
+        #return sigmasq
+
+
+class BartModel(samplers.Sampler):
+    pass
+
 class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
     # vector of predictors.  Each terminal node has parameter Theta.
-    # 
+    #
     # y|X has distribution f(y|Theta).
 
     def __init__(self, X, y, nu, lamb, mubar, a, name, track=True, alpha=0.95, beta=1.0, min_samples_leaf=5):
@@ -694,7 +712,7 @@ class CartTree(BaseTree, steps.Parameter):
         # unncessary, these distributions are marginalized over.
         #sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
         #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
-        
+
         for node in tree.terminalNodes:
             fxl, fyl = tree.filter(node)
             if node.npts == 0:
@@ -746,41 +764,6 @@ class CartTree(BaseTree, steps.Parameter):
             self.mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
             n_idx += 1
 
-
-class Node(object):
-    NodeId = 0
-
-    def __init__(self, parent, is_left):
-        self.Id        = Node.NodeId
-        Node.NodeId   += 1
-
-        self.Parent    = parent # feature and threshold reside in the parent
-        self.Left      = None   # data[:, feature] <= threshold
-        self.Right     = None   # data[:, feature] > threshold
-        self.setThreshold(None, None)
-
-        if self.Parent is not None:
-            self.is_left = is_left
-            if self.is_left:
-                parent.Left = self
-            else:
-                parent.Right = self
-            self.depth = self.Parent.depth + 1
-        else:
-            self.depth = 0
-
-        # Moments of the data that end up in this bin
-        self.ybar = 0.0
-        self.yvar = 0.0
-        self.npts = 0
-
-    # NOTE: the parent carries the threshold
-    def setThreshold(self, feature, threshold):
-        self.feature = feature
-        self.threshold = threshold
-
-
-        
 
 if __name__ == "__main__":
     nsamples  = 1000
