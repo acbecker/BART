@@ -155,18 +155,24 @@ class BaseTree(object):
             self.calcInternalNodes_(node.Right)
         if node.Left is not None:
             self.calcInternalNodes_(node.Left)
-            
-    # Filter the data that end up in each (terminal) node; return
-    # their locations
-    def filter(self, node):
-        includeX = np.ones(self.X.shape, dtype=np.bool)
+
+    def plinko(self, node, data):
+
+        includeX = np.ones(data.shape, dtype=np.bool)
         n = node
         while n.Parent is not None:
             if n.is_left:
-                includeX[:,n.Parent.feature] &= self.X[:,n.Parent.feature] <=  n.Parent.threshold
+                includeX[:,n.Parent.feature] &= data[:,n.Parent.feature] <=  n.Parent.threshold
             else:
-                includeX[:,n.Parent.feature] &= self.X[:,n.Parent.feature] >   n.Parent.threshold
+                includeX[:,n.Parent.feature] &= data[:,n.Parent.feature] >   n.Parent.threshold
             n = n.Parent
+        return includeX
+        
+    
+    # Filter the data that end up in each (terminal) node; return
+    # their locations
+    def filter(self, node):
+        includeX = self.plinko(node, self.X)
         includeY = np.all(includeX, axis=1)
 
         # Set the node values
@@ -315,6 +321,21 @@ class BartTrees(object):
 
         return 
 
+    def predict(self, data):
+        # data needs to be shape (self.npredict, self.nfeatures)
+        assert (data.shape[1] == self.n_features)
+        n_predict = data.shape[0]
+
+        node_mus = np.zeros((n_predict, self.m))
+        for m in range(self.m):
+            tree     = self.trees[m]
+            ybarmap  = np.zeros(n_predict)
+            for node in tree.terminalNodes:
+                y_in_node = np.all(tree.plinko(node, data), axis=1)
+                assert(np.all(ybarmap[y_in_node] == 0.0))
+                ybarmap[y_in_node] = node.ybar
+            node_mus[:,m] = ybarmap
+        return node_mus
 
     def regressionLnlike(self):
         # IGNORE ME
@@ -371,12 +392,12 @@ class CartProposal(object):
         else:
             #print "# PRUNE",
             tree.prune()
-        elif prop < 0.75:
-            print "# CHANGE",
-            tree.change()
-        else:
-            print "# SWAP",
-            tree.swap()
+        #elif prop < 0.75:
+        #    print "# CHANGE",
+        #    tree.change()
+        #else:
+        #    print "# SWAP",
+        #    tree.swap()
 
 
 class BartTreeParameter(steps.Parameter):
@@ -798,7 +819,11 @@ if __name__ == "__main__":
     print "Internal", [x.Id for x in tree.internalNodes]
 
     tree = BartTrees(X, y)
-    tree.calcResids()
+    #tree.calcResids()
+    npredict = 70
+    Xp   = np.random.random((npredict, nfeatures)) - 0.5
+    tree.predict(Xp)
+
     #for i in range(10):
     #    tree.regressionLnlike()
 
