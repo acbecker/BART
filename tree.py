@@ -333,7 +333,7 @@ class BartTrees(object):
             for node in tree.terminalNodes:
                 y_in_node = np.all(tree.plinko(node, data), axis=1)
                 assert(np.all(ybarmap[y_in_node] == 0.0))
-                ybarmap[y_in_node] = node.ybar
+                ybarmap[y_in_node] = node.ybar  # note, this should really use the model parameter
             node_mus[:,m] = ybarmap
         return node_mus
 
