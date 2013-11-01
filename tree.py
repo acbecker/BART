@@ -190,10 +190,10 @@ class BartProposal(proposals.Proposal):
         prop = np.random.uniform()
         if prop < self.pgrow:
             self._node = new_tree.grow()
-            self.operation = 'grow'
+            self._operation = 'grow'
         else:
             self._node = new_tree.prune()
-            self.operation = 'prune'
+            self._operation = 'prune'
 
         return new_tree
 
@@ -210,11 +210,11 @@ class BartProposal(proposals.Proposal):
             2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
 
         # get log ratio of transition kernels
-        if self.operation == 'grow':
+        if self._operation == 'grow':
             ntnodes = len(current_tree.terminalNodes)
             ntparents = len(proposed_tree.get_terminal_parents())
             logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
-        elif self.operation == 'prune':
+        elif self._operation == 'prune':
             ntnodes = len(proposed_tree.terminalNodes)
             ntparents = len(current_tree.get_terminal_parents())
             logdensity = np.log(ntparents) - log_prior_ratio
@@ -232,6 +232,7 @@ class BartProposal(proposals.Proposal):
         else:
             #print "# PRUNE",
             tree.prune()
+
 
 class BartTree(BaseTree):
     def __init__(self, X, y, alpha, beta, nu, q, a):
@@ -380,7 +381,7 @@ class CartProposal(object):
 
 class BartTreeParameter(steps.Parameter):
 
-    def __init__(self, name, X, y, alpha=0.95, beta=2.0, track=True):
+    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, track=True):
         """
         Constructor for Bart tree configuration parameter class. The tree configuration is treated as a Parameter object
         to be sampled using a MCMC sampler. The 'value' of this parameter is an instance of BaseTree, which is updated
@@ -389,8 +390,9 @@ class BartTreeParameter(steps.Parameter):
         @param name: A string containing the name of the Tree. Used as a key to identify this particular tree.
         @param X: The predictors, an array of shape (n,p).
         @param y: The array of response values, of size n.
+        @param mtrees: The number of trees used in the BART model
         @param alpha: Prior parameter on the tree shape, same the notation of Chipman et al. (2010).
-        @param beta: Prior parameter controling the tree depth, same notation of Chipman et al. (2010).
+        @param beta: Prior parameter controlling the tree depth, same notation of Chipman et al. (2010).
         @param track: When this parameter is tracked (i.e., whether the values are saved) in the MCMC sampler.
         """
         super(BartTreeParameter, self).__init__(name, track)
@@ -403,22 +405,23 @@ class BartTreeParameter(steps.Parameter):
         # Setup up the prior distribution
         self.k = 2  # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
         self.mubar = 0.0  # shrink values of mu for each terminal node toward zero
+        self.mtrees = mtrees  # the number of trees in the BART model
+        self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
+        self.prior_mu_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
 
-        if False:
-            sigma = np.std(self.y)
-        else:
-            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
-            fit       = regressor.fit(X, y)
-            sigma     = np.std(fit.predict(X) - y)
-        # These values of sigma1, sigma2 should be used to predict nu
-        # and q.
-        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+        self.alpha = alpha
+        self.beta = beta
 
-        qchi       = stats.chi2.interval(self.nu, self.q)[1]
-        self.lamb  = sigma ** 2 * qchi / self.nu  # scale parameter for error variance scaled inverse-chi-square prior
+        # Must set this manually before running the MCMC sampler. Necessary because log-likelihood depends on the value
+        # of sigma^2.
+        self.sigsqr = None  # the instance of BartVariance class for this model.
 
     def set_starting_value(self):
+        try:
+            self.sigsqr is not None
+        except ValueError:
+            "Value of error variance is not set."
+        # draw initial tree configuration from the prior
         self.value.buildUniform(self.value.head, self.alpha, self.beta)
 
     def logprior(self, tree):
@@ -475,25 +478,140 @@ class BartTreeParameter(steps.Parameter):
                 continue
 
             ymean = node.ybar
-            yvar = node.yvar * npts / (npts - 1)  # numpy.var normalizes by 1 / N, not 1 / (N-1)
 
-            # Terms that depend on the data moments
-            si = (npts - 1) * yvar
-            ti = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+            # log-likelihood component after marginalizing over the mean value in each node, a gaussian distribution
+            post_var = self.prior_mu_var + self.sigsqr.value / npts
+            zsqr = (ymean - self.mubar) ** 2 / post_var
 
-            # Calculation of the log likelihood (Chipman Eq 14)
-            t1 = -0.5 * npts * np.log(np.pi)
-            t3 = +0.5 * np.log(self.a / (npts + self.a))
-            t4 = gammaln(0.5 * (npts + self.nu)) - t4b
-            t5 = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
-            lnlike += t1 + t2 + t3 + t4 + t5
-            #print npts, ymean, yvar, lnlike
+            lnlike += -0.5 * np.log(self.sigsqr.value / npts) - 0.5 * zsqr
 
         return lnlike
 
     def logdensity(self, tree):
         loglik = self.loglik(tree)
         return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
+
+
+class BartMeanParameter(steps.Parameter):
+
+    def __init__(self, name, mtrees, track=True):
+        """
+        Constructor for Parameter class corresponding to the mean values of the response in each terminal node of a
+        BART model.
+
+        @param name: A string specifying the name of this parameters, used as a key in distinguishing parameters.
+        @param mtrees: The number of trees in the BART model. The prior depends on this.
+        @param track: Whether the parameter values should be tracked and saved by the MCMC sampler, a boolean.
+        """
+        super(BartMeanParameter, self).__init__(name, track)
+        # Set prior parameters
+        self.mubar = 0.0  # prior mean
+        self.mtrees = mtrees  # the number of trees in the BART model
+        self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
+        self.prior_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
+
+        # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
+        # values of the other parameters.
+        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
+        self.sigsqr = None  # the instance of BartVariance class for this model
+
+    def set_starting_value(self, tree):
+        try:
+            self.tree is not None
+        except ValueError:
+            "Tree configuration is not set."
+        try:
+            self.sigsqr is not None
+        except ValueError:
+            "Value of error variance is not set."
+
+        self.value = self.random_posterior()
+
+    def random_posterior(self):
+        """
+        Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
+        current tree configuration, variance (sigma ** 2), and data.
+        """
+        mu = np.empty(len(self.tree.terminalNodes))
+        n_idx = 0
+        for node in self.tree.terminalNodes:
+            if node.npts == 0:
+                # Damn, this should not happen.
+                # DEBUG ME
+                continue
+            ny_in_node = node.npts
+            ymean_in_node = node.ybar
+
+            post_var = 1.0 / (1.0 / self.prior_var + ny_in_node / self.sigsqr.value)
+            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr.value
+
+            mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
+            n_idx += 1
+
+        return mu
+
+
+class BartVariance(steps.Parameter):
+
+    def __init__(self, X, y, name='sigsqr', track=True):
+        super(BartVariance, self).__init__(name, track)
+        self.y = y
+
+        # set prior parameter values
+        use_naive_prior = True
+        if use_naive_prior:
+            sigma_hat = np.std(self.y)
+        else:
+            regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
+            fit = regressor.fit(X, y)
+            sigma_hat = np.std(fit.predict(X) - y)
+        # These value of sigma_hat should be used to estimate nu and q.
+        self.nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q = 0.90  # The quantile of the prior that the sigma2 estimate is placed at
+
+        qchi = stats.chi2.interval(self.nu, self.q)[1]
+        # scale parameter for error variance scaled inverse-chi-square prior
+        self.lamb = sigma_hat ** 2 * qchi / self.nu
+
+        # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
+        # values of the other parameters.
+        self.trees = None  # the ensemble of BartTreeParameter objects for this model
+        self.mus = None  # the ensemble of BartMeanParameter objects for this model
+
+    def set_starting_value(self):
+        try:
+            self.tree is not None
+        except ValueError:
+            "Parameter for tree configuration is not set."
+        try:
+            self.mu is not None
+        except ValueError:
+            "Parameter for mean response in terminal nodes is not set."
+
+        return self.random_posterior()
+
+    def random_posterior(self):
+
+        # resid = self.y - self.trees.ypredict()
+        ypredict = np.zeros(len(self.y))
+        for tree, mu in self.trees, self.mus:
+            n_idx = 0
+            for node in tree.terminalNodes:
+                x_filtered = tree.filter(node)
+                y_filtered = np.all(x_filtered, axis=1)
+                ypredict[y_filtered] += mu.value[n_idx]
+                n_idx += 1
+
+        resid = self.y - ypredict
+        ssqr = np.var(resid)
+
+        post_dof = self.nu + len(self.y)
+        post_ssqr = (len(self.y) * ssqr + self.nu * self.lamb) / post_dof
+
+        # new error variance is drawn from scaled inverse-chi-square distribution
+        new_sigsqr = post_dof * post_ssqr / np.random.chisquare(post_dof)
+
+        return new_sigsqr
 
 
 class CartTree(BaseTree, steps.Parameter):

@@ -90,10 +90,14 @@ class GibbStep(Step):
     """
     The Gibbs update. This works by updating the parameter value with a random draw from the posterior
     distribution, conditional on the data and any other parameter objects. The user must have defined the
-    method RandomPosterior for the parameter object in order to use this step.
+    method random_posterior for the parameter object in order to use this step.
     """
-
     def __init__(self, parameter):
+        """
+        Constructor.
+
+        @param parameter: The Parameter object that will undergo the Gibbs update.
+        """
         Step.__init__(self, parameter)
 
     def do_step(self):
