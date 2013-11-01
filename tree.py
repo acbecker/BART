@@ -47,7 +47,7 @@ class BaseTree(object):
         available observed values.  NOTE: do not change the node
         attributes here since this may be rejected"""
         feature = np.random.randint(self.n_features)
-        idxX = self.filter(node)
+        idxX, idxY = self.filter(node)
         data = self.X[:, feature][idxX[:, feature]]
         if len(data) == 0:
             return None, None, None
@@ -73,8 +73,8 @@ class BaseTree(object):
         nright = Node(parent, False) # Add right node; it registers with parent
         parent.setThreshold(feature, threshold)
 
-        fxl = self.filter(nleft)
-        fxr = self.filter(nright)
+        fxl, fyl = self.filter(nleft)
+        fxr, fyr = self.filter(nright)
         
         # only split if it yields at least nmin points per child
         if nleft.npts >= self.nmin and nright.npts >= self.nmin:
@@ -173,7 +173,7 @@ class BaseTree(object):
         node.yvar = np.std(self.y[includeY])**2
         node.npts = np.sum(includeY)
 
-        return includeX
+        return includeX, includeY
 
 
 class BartProposal(proposals.Proposal):
@@ -226,31 +226,16 @@ class BartProposal(proposals.Proposal):
     def __call__(self, tree):
         prop = np.random.uniform()
         if prop < 0.50:
-            print "# GROW",
+            #print "# GROW",
             tree.grow()
         else:
-            print "# PRUNE",
+            #print "# PRUNE",
             tree.prune()
 
 class BartTree(BaseTree):
-    def __init__(self, X, y, alpha, beta):
+    def __init__(self, X, y, alpha, beta, nu, q, a):
         BaseTree.__init__(self, X, y)
-        self.k     = 2    # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
 
-        if True:
-            sigma = np.std(self.y)
-        else:
-            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
-            fit       = regressor.fit(X, y)
-            sigma     = np.mean(fit.predict(X) - y)
-        # These values of sigma1, sigma2 should be used to predict nu
-        # and q.
-        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
-
-        qchi       = stats.chi2.interval(self.q, self.nu)[1]
-        self.lamb  = sigma**2 * qchi / self.nu
-        
         self.buildUniform(self.head, alpha, beta)
 
 class BartTrees(object):
@@ -260,41 +245,114 @@ class BartTrees(object):
         self.n_features = X.shape[1]
         self.n_samples  = X.shape[0]
 
+        if True:
+            sigma = np.std(self.y)
+        else:
+            regressor = linear_model.Lasso(normalize=True, fit_intercept=True)
+            fit       = regressor.fit(X, y)
+            sigma     = np.mean(fit.predict(X) - y)
+        self.sigsqr = sigma**2
+
         # Hyperparameters for growing the trees.  Keep them more
         # compact than CART since there are more of them
         self.alpha = alpha
         self.beta = beta
 
         # Rescale y to lie between -0.5 and 0.5
-        self.y += np.min(self.y) # minimum = 0
-        self.y /= np.max(self.y) # maximum = 1
-        self.y -= 0.5            # range is -0.5 to 0.5
+        self.y -= self.y.min() # minimum = 0
+        self.y /= self.y.max() # maximum = 1
+        self.y -= 0.5          # range is -0.5 to 0.5
+
+        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+        qchi       = stats.chi2.interval(self.q, self.nu)[1]
+        self.lamb  = self.sigsqr * qchi / self.nu
  
         self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
         self.m = m       # Number of trees
+
         self.mumu  = 0.0
         self.sigmu = 0.5 / self.k / np.sqrt(self.m)  
         self.a     = 1.0 / (self.sigmu**2)
+
         self.trees = []
         for m in range(self.m):
-            self.trees.append(BartTree(self.X, self.y, self.alpha, self.beta))
+            self.trees.append(BartTree(self.X, self.y, self.alpha, self.beta, self.nu, self.q, self.a))
+
+    @staticmethod
+    def node_mu(tree):
+        ybarmap = np.zeros(tree.n_samples)
+        for node in tree.terminalNodes:
+            # NOTE: this should grab the model parameters, not the empirical means
+            y_in_node = tree.filter(node)[1]
+            assert(np.all(ybarmap[y_in_node] == 0.0))
+            ybarmap[y_in_node] = node.ybar
+        return ybarmap
+
+    def calcResids(self):
+        node_mus = np.zeros((self.n_samples, self.m))
+        for m in range(self.m):
+            node_mus[:,m] = self.node_mu(self.trees[m])
+
+        treesum = np.sum(node_mus, axis=1)
+        for m in range(self.m):
+            resids = self.y - treesum + node_mus[:,m]
+
+            # Update
+            self.trees[m].y = resids
+
+            # Proposal updates the tree
+            # TBD
+
+            # Updated tree sum
+            pred = self.node_mu(self.trees[m])
+            treesum += (pred - node_mus[:,m])
+
+            # Make sure the node_mus matrix is updated along with the tree
+            node_mus[:,m] = pred
+
+        return 
+
 
     def regressionLnlike(self):
+        # IGNORE ME
         prop = BartProposal()
-        lnlikes = []
+
+        allfit = np.mean(self.y) * np.ones(self.n_samples)
         for m in range(self.m):
             tree = self.trees[m]
 
-            ydat = y - mtotalfit + mtrainfits[i]
-            mtotalfit += mfits[1] - mtrainfits[i]
-            mtrainfits[i] = mfits[1]
-            mtestfits[j] = mfits[2]
+            # For every input data point, we need to find what
+            # terminal node a data point ends up in, and then take its
+            # mean and put it in ytemp
+            ytemp   = self.node_mu(tree)
+            allfit -= ytemp
+            resid   = tree.y - allfit
+            tree.y  = resid
 
-            eps = yData[:,1] - mtotalfits
+            # Modify tree
+            prop(tree)
+
+            # Reset all the bottom node mus; note the variance is kept the same
+            for node in tree.terminalNodes:
+                b      = node.npts / self.sigsqr
+                postmu = b * node.ybar / (self.a + b)
+                postsd = 1.0 / np.sqrt(self.a + b)
+                nodemu = postmu + postsd * np.random.uniform()
+                node.ybar = nodemu
+
+            # Again, For every input data point, find what terminal
+            # node a data point ends up in and put it in ytemp
+            ytemp   = self.node_mu(tree)
+            allfit += ytemp
+        #import pdb; pdb.set_trace()
+        print allfit
+        rss = np.sum((self.y - allfit)**2)
+        #sigmasq = (self.nu * self.lamb + rss) / stats.gamma.rvs(0.5 * (self.nu + self.n_samples), 0.5)
         
-            prop(tree) # Modify tree
-            lnlikes.append(tree.regressionLnlike())
-        return np.sum(lnlikes)
+        print rss
+        #return sigmasq
+
 ####
 #################
 ####
@@ -306,10 +364,10 @@ class CartProposal(object):
     def __call__(self, tree):
         prop = np.random.uniform()
         if prop < 0.50:
-            print "# GROW",
+            #print "# GROW",
             tree.grow()
         else:
-            print "# PRUNE",
+            #print "# PRUNE",
             tree.prune()
         
 
@@ -361,7 +419,7 @@ class CartTree(BaseTree, steps.Parameter):
             logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
 
             # get number of features and data points that are available for the splitting rule
-            fxl = tree.filter(node)
+            fxl, fyl = tree.filter(node)
             nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
             npts = node.npts
             # probability of split is discrete uniform over set of available features and data points
@@ -380,7 +438,7 @@ class CartTree(BaseTree, steps.Parameter):
         @param tree: The proposed tree.
         @return: The log-likelihood of tree.
         """
-        if tree == None:
+        if tree is None:
             tree = self
 
         lnlike = 0.0
@@ -395,7 +453,7 @@ class CartTree(BaseTree, steps.Parameter):
         #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
         
         for node in tree.terminalNodes:
-            fxl = tree.filter(node)
+            fxl, fyl = tree.filter(node)
             if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
@@ -431,7 +489,7 @@ class CartTree(BaseTree, steps.Parameter):
         self.mu = np.empty(len(self.terminalNodes))
         n_idx = 0
         for node in self.terminalNodes:
-            x_in_node = self.filter(node)  # boolean values
+            x_in_node, y_in_node = self.filter(node)  # boolean values
             if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
@@ -489,15 +547,16 @@ if __name__ == "__main__":
     tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, name=None, alpha=0.99, beta=1.0/np.log(nsamples))
     prop = CartProposal()
     tree.printTree(tree.head)
-    for i in range(10000):
-        prop(tree)
-        print tree.loglik()
+    #for i in range(10000):
+    #    prop(tree)
+    #    print tree.loglik()
 
     print "Terminal", [x.Id for x in tree.terminalNodes]
     print "Internal", [x.Id for x in tree.internalNodes]
 
     tree = BartTrees(X, y)
-    for i in range(10):
-        tree.regressionLnlike()
+    tree.calcResids()
+    #for i in range(10):
+    #    tree.regressionLnlike()
 
     
