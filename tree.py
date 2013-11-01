@@ -337,45 +337,6 @@ class BartTrees(object):
             node_mus[:,m] = ybarmap
         return node_mus
 
-    def regressionLnlike(self):
-        # IGNORE ME
-        prop = BartProposal()
-
-        allfit = np.mean(self.y) * np.ones(self.n_samples)
-        for m in range(self.m):
-            tree = self.trees[m]
-
-            # For every input data point, we need to find what
-            # terminal node a data point ends up in, and then take its
-            # mean and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit -= ytemp
-            resid   = tree.y - allfit
-            tree.y  = resid
-
-            # Modify tree
-            prop(tree)
-
-            # Reset all the bottom node mus; note the variance is kept the same
-            for node in tree.terminalNodes:
-                b      = node.npts / self.sigsqr
-                postmu = b * node.ybar / (self.a + b)
-                postsd = 1.0 / np.sqrt(self.a + b)
-                nodemu = postmu + postsd * np.random.uniform()
-                node.ybar = nodemu
-
-            # Again, For every input data point, find what terminal
-            # node a data point ends up in and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit += ytemp
-        #import pdb; pdb.set_trace()
-        print allfit
-        rss = np.sum((self.y - allfit)**2)
-        #sigmasq = (self.nu * self.lamb + rss) / stats.gamma.rvs(0.5 * (self.nu + self.n_samples), 0.5)
-        
-        print rss
-        #return sigmasq
-
 ####
 #################
 ####
