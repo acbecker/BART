@@ -323,7 +323,7 @@ class CartProposal(object):
 
 class BartTreeParameter(steps.Parameter):
 
-    def __init__(self, name, X, y, alpha=0.95, beta=2.0, track=True):
+    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, track=True):
         """
         Constructor for Bart tree configuration parameter class. The tree configuration is treated as a Parameter object
         to be sampled using a MCMC sampler. The 'value' of this parameter is an instance of BaseTree, which is updated
@@ -332,6 +332,7 @@ class BartTreeParameter(steps.Parameter):
         @param name: A string containing the name of the Tree. Used as a key to identify this particular tree.
         @param X: The predictors, an array of shape (n,p).
         @param y: The array of response values, of size n.
+        @param mtrees: The number of trees used in the BART model
         @param alpha: Prior parameter on the tree shape, same the notation of Chipman et al. (2010).
         @param beta: Prior parameter controling the tree depth, same notation of Chipman et al. (2010).
         @param track: When this parameter is tracked (i.e., whether the values are saved) in the MCMC sampler.
@@ -346,6 +347,12 @@ class BartTreeParameter(steps.Parameter):
         # Setup up the prior distribution
         self.k = 2  # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
         self.mubar = 0.0  # shrink values of mu for each terminal node toward zero
+        self.mtrees = mtrees  # the number of trees in the BART model
+        self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
+        self.prior_mu_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
+
+        self.alpha = alpha
+        self.beta = beta
 
         # Must set this manually before running the MCMC sampler. Necessary because log-likelihood depends on the value
         # of sigma^2.
@@ -356,7 +363,7 @@ class BartTreeParameter(steps.Parameter):
             self.sigsqr is not None
         except ValueError:
             "Value of error variance is not set."
-
+        # draw initial tree configuration from the prior
         self.value.buildUniform(self.value.head, self.alpha, self.beta)
 
     def logprior(self, tree):
@@ -413,19 +420,12 @@ class BartTreeParameter(steps.Parameter):
                 continue
 
             ymean = node.ybar
-            yvar = node.yvar * npts / (npts - 1)  # numpy.var normalizes by 1 / N, not 1 / (N-1)
 
-            # Terms that depend on the data moments
-            si = (npts - 1) * yvar
-            ti = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
+            # log-likelihood component after marginalizing over the mean value in each node, a gaussian distribution
+            post_var = self.prior_mu_var + self.sigsqr.value / npts
+            zsqr = (ymean - self.mubar) ** 2 / post_var
 
-            # Calculation of the log likelihood (Chipman Eq 14)
-            t1 = -0.5 * npts * np.log(np.pi)
-            t3 = +0.5 * np.log(self.a / (npts + self.a))
-            t4 = gammaln(0.5 * (npts + self.nu)) - t4b
-            t5 = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
-            lnlike += t1 + t2 + t3 + t4 + t5
-            #print npts, ymean, yvar, lnlike
+            lnlike += -0.5 * np.log(self.sigsqr.value / npts) - 0.5 * zsqr
 
         return lnlike
 
