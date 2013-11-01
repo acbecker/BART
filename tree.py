@@ -491,103 +491,67 @@ class BartProposal(proposals.Proposal):
 
         return logdensity
 
-    def __call__(self, tree):
-        prop = np.random.uniform()
-        if prop < 0.50:
-            #print "# GROW",
-            tree.grow()
-        else:
-            #print "# PRUNE",
-            tree.prune()
-
 
 class BartStep(object):
-    def __init__(self, name, X, y, m=200, alpha=0.95, beta=2.0, track=True):
 
-        # TODO: Move a lot of this setup to a BartSampler class
+    def __init__(self, y, trees, mus, report_iter=-1):
 
-        self.X = X
         self.y = y
-        self.n_features = X.shape[1]
-        self.n_samples  = X.shape[0]
-
-        # Hyperparameters for growing the trees.  Keep them more
-        # compact than CART since there are more of them
-        self.alpha = alpha
-        self.beta = beta
-
-        # store original y range so we can transform back when making predictions
-        self.ymin = self.y.min()
-        self.ymax = self.y.max()
-
-        # Rescale y to lie between -0.5 and 0.5
-        self.y -= self.ymin # minimum = 0
-        self.y /= self.ymax # maximum = 1
-        self.y -= 0.5          # range is -0.5 to 0.5
-
-        ##### TODO: Pretty sure this goes with the variance parameter object
-        if True:
-            sigma = np.std(self.y)
-        else:
-            regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
-            fit       = regressor.fit(X, y)
-            sigma     = np.mean(fit.predict(X) - y)
-        self.sigsqr = sigma**2
-
-        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
-        qchi       = stats.chi2.interval(self.q, self.nu)[1]
-        self.lamb  = self.sigsqr * qchi / self.nu
- 
-        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
-        self.m = m       # Number of trees
-        self.prior_mu  = 0.0  # prior mean of mu values for terminal nodes
-        self.prior_mu_var = 1.0 / (4.0 * self.k * self.k * self.mtrees)  # prior variance of mu values
-
-        # Build the ensemble of tree configurations and mu values for the terminal nodes
-        self.trees = []
-        self.mus = []
-        for m in range(self.m):
-            bname = 'BART ' + str(m + 1)
-            mname = 'Mu ' + str(m + 1)
-            self.trees.append(BartTreeParameter(bname, self.X, self.y, self.m, self.alpha, self.beta, self.prior_mu,
-                self.prior_var))
-            self.mus.append(BartMeanParameter(mname, self.m))
+        self.resids = y
+        self.trees = trees
+        self.mus = mus
+        self._report_iter = report_iter
+        self.tree_proposal = BartProposal()  # object to generate a new tree configuration from the current one
+        # Objects to perform a Metropolis-Hasting update of the tree configuration for each tree
+        self.tree_steps = [steps.MetroStep(tree, self.tree_proposal, self._report_iter) for tree in self.trees]
 
     @staticmethod
-    def node_mu(tree):
-        ybarmap = np.zeros(tree.n_samples)
-        for node in tree.terminalNodes:
-            # NOTE: this should grab the model parameters, not the empirical means
-            y_in_node = tree.filter(node)[1]
-            assert(np.all(ybarmap[y_in_node] == 0.0))
-            ybarmap[y_in_node] = node.ybar
-        return ybarmap
+    def node_mu(tree, mu):
+        try:
+            len(tree.terminalNodes) == len(mu.value)
+        except ValueError:
+            "Number of terminal nodes does not equal number of mu values."
 
-    def calcResids(self):
+        mu_map = np.zeros(tree.n_samples)
+        n_idx = 0
+        for node in tree.terminalNodes:
+            y_in_node = tree.filter(node)[1]
+            assert(np.all(mu_map[y_in_node] == 0.0))
+            mu_map[y_in_node] = mu.value[n_idx]
+            n_idx += 1
+
+        return mu_map
+
+    def do_step(self):
         node_mus = np.zeros((self.n_samples, self.m))
         for m in range(self.m):
-            node_mus[:,m] = self.node_mu(self.trees[m])
+            node_mus[:, m] = self.node_mu(self.trees[m], self.mus[m])
 
+        # predicted y is a sum of trees
         treesum = np.sum(node_mus, axis=1)
         for m in range(self.m):
-            resids = self.y - treesum + node_mus[:,m]
+            # leave-one-out residuals
+            resids = self.y - (treesum - node_mus[:, m])
 
-            # Update
+            # make leave-one-out resids the new response for the left-out tree
             self.trees[m].y = resids
 
-            # Proposal updates the tree
-            # TBD
+            # First update the tree configuration using a Metropolis-Hastings step
+            self.tree_steps[m].do_step()
+
+            # Now update the mu values in the terminal nodes for this tree, do a Gibbs update
+            self.mus[m].value = self.mus[m].random_posterior()
 
             # Updated tree sum
-            pred = self.node_mu(self.trees[m])
-            treesum += (pred - node_mus[:,m])
+            pred = self.node_mu(self.trees[m], self.mus[m])
+            treesum += (pred - node_mus[:, m])
 
             # Make sure the node_mus matrix is updated along with the tree
-            node_mus[:,m] = pred
+            node_mus[:, m] = pred
 
-        return 
+        self.resids = self.y - treesum  # save residuals for use by variance parameter object
 
+        return
 
     def regressionLnlike(self):
         # IGNORE ME
@@ -630,7 +594,58 @@ class BartStep(object):
 
 
 class BartModel(samplers.Sampler):
-    pass
+    def __init__(self):
+
+
+        self.X = X
+        self.y = y
+        self.n_features = X.shape[1]
+        self.n_samples  = X.shape[0]
+
+        # Hyperparameters for growing the trees.  Keep them more
+        # compact than CART since there are more of them
+        self.alpha = alpha
+        self.beta = beta
+
+        # store original y range so we can transform back when making predictions
+        self.ymin = self.y.min()
+        self.ymax = self.y.max()
+
+        # Rescale y to lie between -0.5 and 0.5
+        self.y -= self.ymin # minimum = 0
+        self.y /= self.ymax # maximum = 1
+        self.y -= 0.5          # range is -0.5 to 0.5
+
+        ##### TODO: Pretty sure this goes with the variance parameter object
+        if True:
+            sigma = np.std(self.y)
+        else:
+            regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
+            fit       = regressor.fit(X, y)
+            sigma     = np.mean(fit.predict(X) - y)
+        self.sigsqr = sigma**2
+
+        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+        qchi       = stats.chi2.interval(self.q, self.nu)[1]
+        self.lamb  = self.sigsqr * qchi / self.nu
+
+        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
+        self.m = m       # Number of trees
+        self.prior_mu  = 0.0  # prior mean of mu values for terminal nodes
+        self.prior_mu_var = 1.0 / (4.0 * self.k * self.k * self.mtrees)  # prior variance of mu values
+
+        # Build the ensemble of tree configurations and mu values for the terminal nodes
+        self.trees = []
+        self.mus = []
+        for m in range(self.m):
+            bname = 'BART ' + str(m + 1)
+            mname = 'Mu ' + str(m + 1)
+            self.trees.append(BartTreeParameter(bname, self.X, self.y, self.m, self.alpha, self.beta, self.prior_mu,
+                self.prior_var))
+            self.mus.append(BartMeanParameter(mname, self.m))
+
+
 
 class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
