@@ -190,10 +190,10 @@ class BartProposal(proposals.Proposal):
         prop = np.random.uniform()
         if prop < self.pgrow:
             self._node = new_tree.grow()
-            self.operation = 'grow'
+            self._operation = 'grow'
         else:
             self._node = new_tree.prune()
-            self.operation = 'prune'
+            self._operation = 'prune'
 
         return new_tree
 
@@ -210,11 +210,11 @@ class BartProposal(proposals.Proposal):
             2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
 
         # get log ratio of transition kernels
-        if self.operation == 'grow':
+        if self._operation == 'grow':
             ntnodes = len(current_tree.terminalNodes)
             ntparents = len(proposed_tree.get_terminal_parents())
             logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
-        elif self.operation == 'prune':
+        elif self._operation == 'prune':
             ntnodes = len(proposed_tree.terminalNodes)
             ntparents = len(current_tree.get_terminal_parents())
             logdensity = np.log(ntparents) - log_prior_ratio
@@ -334,7 +334,7 @@ class BartTreeParameter(steps.Parameter):
         @param y: The array of response values, of size n.
         @param mtrees: The number of trees used in the BART model
         @param alpha: Prior parameter on the tree shape, same the notation of Chipman et al. (2010).
-        @param beta: Prior parameter controling the tree depth, same notation of Chipman et al. (2010).
+        @param beta: Prior parameter controlling the tree depth, same notation of Chipman et al. (2010).
         @param track: When this parameter is tracked (i.e., whether the values are saved) in the MCMC sampler.
         """
         super(BartTreeParameter, self).__init__(name, track)
