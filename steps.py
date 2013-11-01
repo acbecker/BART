@@ -55,7 +55,7 @@ class Parameter(object):
         """
         return 0.0
 
-    def random_posterior(self, other_parameters=None):
+    def random_posterior(self):
         """
         Method to generate a random draw of the parameter from its posterior distribution. This
         method is used by the Gibbs step and must be defined when employing a Gibbs sampler.
@@ -92,19 +92,16 @@ class GibbStep(Step):
     distribution, conditional on the data and any other parameter objects. The user must have defined the
     method random_posterior for the parameter object in order to use this step.
     """
-    def __init__(self, parameter, other_parameters=None):
+    def __init__(self, parameter):
         """
         Constructor.
 
         @param parameter: The Parameter object that will undergo the Gibbs update.
-        @param other_parameters: A tuple of any other parameter objects that the Gibbs update depends on. These are
-            passed as parameter.random_posterior(other_parameters).
         """
         Step.__init__(self, parameter)
-        self._other_parameters = other_parameters
 
     def do_step(self):
-        self._parameter.value = self._parameter.random_posterior(self._other_parameters)
+        self._parameter.value = self._parameter.random_posterior()
 
 
 class MetroStep(Step):
