@@ -13,6 +13,12 @@ class Node(object):
     NodeId = 0
 
     def __init__(self, parent, is_left):
+        """
+        Constructor for a node in a binary tree.
+
+        @param parent: The parent node.
+        @param is_left: If true, then this node is the left node in the binary split from the parent node.
+        """
         self.Id        = Node.NodeId
         Node.NodeId   += 1
 
@@ -38,12 +44,27 @@ class Node(object):
 
     # NOTE: the parent carries the threshold
     def setThreshold(self, feature, threshold):
+        """
+        Set the feature and the value that the binary split occurs on.
+
+        @param feature: The split is on this feature's values.
+        @param threshold: The value of the feature seperating the left and right nodes.
+        """
         self.feature = feature
         self.threshold = threshold
 
 
 class BaseTree(object):
+
     def __init__(self, X, y, min_samples_leaf=5):
+        """
+        Constructor for the Base class for binary trees. This class contains methods that provide the functionality
+        needed for building and describing a binary tree configuration.
+
+        @param X: The array of feature values, shape (n_samples,n_features).
+        @param y: The array of response values, size n_samples.
+        @param min_samples_leaf: The minimum number of data points within a leaf (terminal node).
+        """
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
@@ -56,6 +77,17 @@ class BaseTree(object):
         self.internalNodes = []
 
     def buildUniform(self, node, alpha, beta, depth=0):
+        """
+        Randomly split the input node into two new nodes. This method is useful for generating a tree configuration
+        using node as the trunk by drawing the split probabilities from the distribution defined by alpha and beta.
+
+        @param node: The trunk (head) of the tree. All generated nodes will fall below this node.
+        @param alpha: Parameter defining probability of a split, same notation as Chipman et al. (2010).
+        @param beta: Parameter defining probability of a split as a funtion of node depth, same notation as
+            Chipman et al. (2010).
+        @param depth: The depth of the current node.
+        @return:
+        """
         psplit = alpha * (1 + depth)**-beta
         rand   = np.random.uniform()
         if rand < psplit:
@@ -74,10 +106,13 @@ class BaseTree(object):
             print "NOT SPLITTING node", node.Id, ": did not pass random draw"
             
     def prule(self, node):
-        """Implement a uniform draw from the features to split on, and
-        then choose the split value uniformly from the set of
-        available observed values.  NOTE: do not change the node
-        attributes here since this may be rejected"""
+        """
+        Split the node by implementing a uniform draw from the features to split on, and then choose the split value
+        uniformly from the set of available observed values.  NOTE: do not change the node attributes here since this
+        may be rejected.
+
+        @param node: The node object on which to perform the split.
+        """
         feature = np.random.randint(self.n_features)
         idxX, idxY = self.filter(node)
         data = self.X[:, feature][idxX[:, feature]]
@@ -87,9 +122,13 @@ class BaseTree(object):
         threshold = data[idxD]
         return feature, threshold, len(data)
 
-    # GROW step: randomly pick a terminal node and split into 2 new
-    # ones by randomly assigning a splitting rule.  
     def grow(self):
+        """
+        Grow a pair of terminal nodes by randomly picking a terminal node and splitting it into two new ones by randomly
+        assigning a splitting rule.
+
+        @return: The node that was chosen to be the parent of the new terminal nodes.
+        """
         nodes = self.terminalNodes
         rnode = nodes[np.random.randint(len(nodes))]
         feature, threshold, ndata_in_node = self.prule(rnode)
@@ -100,7 +139,14 @@ class BaseTree(object):
         return rnode
 
     def split(self, parent, feature, threshold):
-        # Threshold is of length self.n_features
+        """
+        Split a node on the input feature and using the input threshold.
+
+        @param parent: The node to split.
+        @param feature: The feature to split the node on.
+        @param threshold: The threshold value of feature for the split.
+        @return: The new left and right node objects resulting from the split.
+        """
         nleft  = Node(parent, True)  # Add left node; it registers with parent
         nright = Node(parent, False) # Add right node; it registers with parent
         parent.setThreshold(feature, threshold)
@@ -121,12 +167,13 @@ class BaseTree(object):
             parent.Right = None
             return None, None
 
-
-    # PRUNE step: randomly pick a parent of 2 terminal nodes and turn
-    # it into a terminal node
-    #
-    # Note: this updates the internal/terminal nodes.
     def prune(self):
+        """
+        Prune the tree by randomly picking a parent of two terminal nodes and then collapsing the terminal nodes into
+        the parent.
+
+        @return: The parent node, i.e., the new terminal node.
+        """
         dparents = self.get_terminal_parents()
         if len(dparents) == 0:
             return
@@ -139,8 +186,12 @@ class BaseTree(object):
 
         return parent
 
-    # Find the parents of each pair of terminal nodes.
     def get_terminal_parents(self):
+        """
+        Find the parents of each pair of terminal nodes.
+
+        @return: The list of parent nodes of each pair of terminal nodes.
+        """
         nodes = self.terminalNodes
         if len(nodes) == 0:
             return
@@ -159,9 +210,10 @@ class BaseTree(object):
         self.printTree(node.Right)
         print node.Id
 
-
-    # Calculate the terminal nodes of the tree
     def calcTerminalNodes(self):
+        """
+        Calculate the terminal nodes of the tree.
+        """
         self.terminalNodes = []
         self.calcTerminalNodes_(self.head)
 
@@ -173,9 +225,10 @@ class BaseTree(object):
         if node.Left is not None:
             self.calcTerminalNodes_(node.Left)
 
-
-    # Calculate the internal nodes of the tree
     def calcInternalNodes(self):
+        """
+        Calculate the internal nodes of the tree.
+        """
         self.internalNodes = []
         self.calcInternalNodes_(self.head)
 
@@ -190,6 +243,12 @@ class BaseTree(object):
     # Filter the data that end up in each (terminal) node; return
     # their locations
     def filter(self, node):
+        """
+        Find the data points that end up in the input node by dropping them down the tree.
+
+        @param node: The node for which the data points are desired.
+        @return: A tuple of two boolean arrays indicating whether the a data point ends up in the input node.
+        """
         includeX = np.ones(self.X.shape, dtype=np.bool)
         n = node
         while n.Parent is not None:
@@ -205,7 +264,7 @@ class BaseTree(object):
         node.yvar = np.std(self.y[includeY])**2
         node.npts = np.sum(includeY)
 
-        return includeX, includeY
+        return includeX, includeY  # TODO: do we really need to return includeX?
 
 
 class BartTreeParameter(steps.Parameter):
@@ -595,7 +654,6 @@ class BartStep(object):
 
 class BartModel(samplers.Sampler):
     def __init__(self):
-
 
         self.X = X
         self.y = y
