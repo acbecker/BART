@@ -346,8 +346,8 @@ class BartTreeParameter(steps.Parameter):
         """
         Compute the marginal log-likelihood for an input tree configuration. This assumes that the only difference
         between the input tree and self is in the structure of the tree nodes. The prior and data are assumed to be the
-        same. Note that the return value is the log-likelihood after marginalizing over mean value parameters in each
-        terminal node.
+        same. Note that the return value is the log-likelihood after marginalizing over the mean value parameters in
+        each terminal node.
 
         @param tree: The input tree configuration object.
         @return: The marginal log-likelihood of the tree configuration.
@@ -443,6 +443,14 @@ class BartMeanParameter(steps.Parameter):
 class BartVariance(steps.Parameter):
 
     def __init__(self, X, y, name='sigsqr', track=True):
+        """
+        Constructor for the error variance parameter in the BART model.
+
+        @param X: The array of features, shape (n_samples, n_features).
+        @param y: The array of response values, size n_samples.
+        @param name: The name of the parameter object, for bookkeeping purposes.
+        @param track: A boolean, if true then we save the values in the MCMC sampler.
+        """
         super(BartVariance, self).__init__(name, track)
         self.y = y
 
@@ -464,34 +472,24 @@ class BartVariance(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.trees = None  # the ensemble of BartTreeParameter objects for this model
-        self.mus = None  # the ensemble of BartMeanParameter objects for this model
+        self.bart_step = None  # the BartStep object for this model
 
     def set_starting_value(self):
         try:
-            self.tree is not None
+            self.bart_step is not None
         except ValueError:
-            "Parameter for tree configuration is not set."
-        try:
-            self.mu is not None
-        except ValueError:
-            "Parameter for mean response in terminal nodes is not set."
+            "Parameter for tree ensemble update step is not set."
 
         return self.random_posterior()
 
     def random_posterior(self):
+        """
+        Obtain a random draw from the posterior distribution of the error variance, conditional on the BART tree
+        ensemble.
 
-        # resid = self.y - self.trees.ypredict()
-        ypredict = np.zeros(len(self.y))
-        for tree, mu in self.trees, self.mus:
-            n_idx = 0
-            for node in tree.terminalNodes:
-                x_filtered = tree.filter(node)
-                y_filtered = np.all(x_filtered, axis=1)
-                ypredict[y_filtered] += mu.value[n_idx]
-                n_idx += 1
-
-        resid = self.y - ypredict
+        @return: A random draw from the conditional posterior of the error variance.
+        """
+        resid = self.bart_step.resids
         ssqr = np.var(resid)
 
         post_dof = self.nu + len(self.y)
@@ -505,11 +503,19 @@ class BartVariance(steps.Parameter):
 
 class BartProposal(proposals.Proposal):
     def __init__(self):
-        self.pgrow = 0.5
+        """
+        Constructor for object that generates proposed tree configurations, given the current one.
+        """
+        self.pgrow = 0.5  # probability of growing the tree instead of pruning the tree.
         self._operation = None  # Last tree operations performed (Grow/Prune)
         self._node = None  # Last node operated on
 
     def draw(self, current_tree):
+        """
+        Generate a random proposed tree configuration from the input one.
+        @param current_tree: The current tree configuration, an instance of the BaseTree class.
+        @return: The proposed tree configuration, and instance of BaseTree.
+        """
         # make a copy since the grow/prune operations operate on the tree object in place
         new_tree = copy.deepcopy(current_tree)
 
@@ -524,6 +530,17 @@ class BartProposal(proposals.Proposal):
         return new_tree
 
     def logdensity(self, proposed_tree, current_tree, forward):
+        """
+        The log-probability of the tree configuration proposal kernel. This includes the contribution from the prior
+        distribution in the marginal log-posterior of the tree configuration. In actuality, this return the logarithm of
+        the ratio of a forward transition to a backward transition multiplied by the ratio of the priors.
+
+        @param proposed_tree: The proposed tree configuration, an instance of the BaseTree class.
+        @param current_tree: The current tree configuration, an instance of the BaseTree class.
+        @param forward: A boolean indicating whether to calculate the forward transition or not. This is just for
+            convenience, since only the forward transition is calculated for computational efficiency.
+        @return: The logarith of the ratio of the transition kernels and the priors.
+        """
         if not forward:
             # only do calculation for forward transition, since factors cancel in MH ratio
             return 0.0
@@ -554,7 +571,17 @@ class BartProposal(proposals.Proposal):
 class BartStep(object):
 
     def __init__(self, y, trees, mus, report_iter=-1):
+        """
+        Constructor for the MCMC step that updates the BART tree ensemble. Each tree in the ensemble is updated one-at-
+        a-time by performing a scan through the individual trees, whereby each tree configuration is first updated using
+        a Metropolis-Hastings step, and then the mean values in each terminal node are updated using a Gibbs step.
 
+        @param y: The array of response values, an n_samples size array.
+        @param trees: The list of tree configurations, instances of the BaseTree class.
+        @param mus: The list of mean values for the terminal nodes of each tree, instances of the BartMeanParameter
+            class.
+        @param report_iter: Print out a report on the Metropolis-Hastings acceptance rates after this many iterations.
+        """
         self.y = y
         self.resids = y
         self.trees = trees
@@ -566,6 +593,15 @@ class BartStep(object):
 
     @staticmethod
     def node_mu(tree, mu):
+        """
+        Generating an array mapping the index of the response (y) values to the values predicted by each terminal node
+        in the input tree.
+
+        @param tree: The tree configuration used to predict the y values, an instance of the BaseTree class.
+        @param mu: The mean value of the terminal nodes that predict the y values, an instance of the BartMeanParameter
+            class.
+        @return: A array of size n_samples, with each element containing the predicted y value from the input tree.
+        """
         try:
             len(tree.terminalNodes) == len(mu.value)
         except ValueError:
@@ -582,6 +618,10 @@ class BartStep(object):
         return mu_map
 
     def do_step(self):
+        """
+        Update of the configurations and mean parameters of the terminal nodes of each tree in the ensemble. Note that
+        this is done in place.
+        """
         node_mus = np.zeros((self.n_samples, self.m))
         for m in range(self.m):
             node_mus[:, m] = self.node_mu(self.trees[m], self.mus[m])
@@ -610,51 +650,20 @@ class BartStep(object):
 
         self.resids = self.y - treesum  # save residuals for use by variance parameter object
 
-        return
-
-    def regressionLnlike(self):
-        # IGNORE ME
-        prop = BartProposal()
-
-        allfit = np.mean(self.y) * np.ones(self.n_samples)
-        for m in range(self.m):
-            tree = self.trees[m]
-
-            # For every input data point, we need to find what
-            # terminal node a data point ends up in, and then take its
-            # mean and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit -= ytemp
-            resid   = tree.y - allfit
-            tree.y  = resid
-
-            # Modify tree
-            prop(tree)
-
-            # Reset all the bottom node mus; note the variance is kept the same
-            for node in tree.terminalNodes:
-                b      = node.npts / self.sigsqr
-                postmu = b * node.ybar / (self.a + b)
-                postsd = 1.0 / np.sqrt(self.a + b)
-                nodemu = postmu + postsd * np.random.uniform()
-                node.ybar = nodemu
-
-            # Again, For every input data point, find what terminal
-            # node a data point ends up in and put it in ytemp
-            ytemp   = self.node_mu(tree)
-            allfit += ytemp
-        #import pdb; pdb.set_trace()
-        print allfit
-        rss = np.sum((self.y - allfit)**2)
-        #sigmasq = (self.nu * self.lamb + rss) / stats.gamma.rvs(0.5 * (self.nu + self.n_samples), 0.5)
-        
-        print rss
-        #return sigmasq
-
 
 class BartModel(samplers.Sampler):
-    def __init__(self):
+    def __init__(self, X, y, alpha=0.95, beta=2.0):
+        """
+        Constructor for BART model class. This class will build the BART model and run the MCMC sampler based on this
+        model, enabling Bayesian inference.
 
+        @param X: The array of measured features, of shape (n_samples, n_features).
+        @param y: The array of measured response values, size n_samples.
+        @param alpha: A tree configuration prior parameter, controlling the probability of a terminal node splitting. In
+            the notation of Chipman et al. (2010).
+        @param beta: A tree configuration prior parameter, controlling the probability of a terminal node splitting
+            given its depth. In the notationof Chipman et al. (2010).
+        """
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
@@ -679,14 +688,14 @@ class BartModel(samplers.Sampler):
             sigma = np.std(self.y)
         else:
             regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
-            fit       = regressor.fit(X, y)
-            sigma     = np.mean(fit.predict(X) - y)
+            fit = regressor.fit(X, y)
+            sigma = np.mean(fit.predict(X) - y)
         self.sigsqr = sigma**2
 
-        self.nu    = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q     = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
-        qchi       = stats.chi2.interval(self.q, self.nu)[1]
-        self.lamb  = self.sigsqr * qchi / self.nu
+        self.nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        self.q = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
+        qchi = stats.chi2.interval(self.q, self.nu)[1]
+        self.lamb = self.sigsqr * qchi / self.nu
 
         self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
         self.m = m       # Number of trees
@@ -703,7 +712,18 @@ class BartModel(samplers.Sampler):
                 self.prior_var))
             self.mus.append(BartMeanParameter(mname, self.m))
 
+    def _setup_prior(self):
+        pass
 
+    def _build_sampler(self):
+        pass
+
+
+
+
+
+#### CartTree class is untested, not finished, and probably will not work. It is only left here just in case we
+#### we want to use it later.
 
 class CartTree(BaseTree, steps.Parameter):
     # Describes the conditional distribution of y given X.  X is a
