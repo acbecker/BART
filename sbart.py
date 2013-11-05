@@ -6,24 +6,29 @@ from .tree import BartTrees
 class AdjacencyMatrix(object):
     def __init__(self, distances):
         self.distances = distances
-    def makeMatrix(self, i):
+    def makeMatrix(self, i, nneighbors):
         pass
 
 class InverseSquaredAdjacencyMatrix(AdjacencyMatrix):
     def __init__(self, distances):
         AdjacencyMatrix.__init__(distances)
-    def makeMatrix(self, i):
-        ddist = self.distances[:,i]
-        return 1. / ddist**2
+    def makeMatrix(self, i, nneighbors):
+        ddist  = self.distances[:,i]
+        idx    = np.argsort(ddist)[1:] # Ignore self!
+        matrix = 1. / ddist**2
+        return idx[:nneighbors], matrix[idx[:nneighbors]]
+
 
 class ExponentialAdjacencyMatrix(AdjacencyMatrix):
     def __init__(self, distances, rdist):
         AdjacencyMatrix.__init__(distances)
         self.rdist = rdist
         assert(self.rdist < 0.0)
-    def makeMatrix(self, i):
-        ddist = self.distances[:,i]
-        return np.exp(rdist * ddist)
+    def makeMatrix(self, i, nneighbors):
+        ddist  = self.distances[:,i]
+        idx    = np.argsort(ddist)[1:] # Ignore self!
+        matrix = np.exp(rdist * ddist)
+        return idx[:nneighbors], matrix[idx[:nneighbors]]
 
 
 class SBart(object):
