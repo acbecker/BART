@@ -397,7 +397,7 @@ class BartMeanParameter(steps.Parameter):
         self.mubar = 0.0  # prior mean
         self.mtrees = mtrees  # the number of trees in the BART model
         self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
-        self.prior_var = 1.0 / (2.0 * self.k * self.k * self.mtrees)
+        self.prior_var = 1.0 / (4.0 * self.k * self.k * self.mtrees)
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
@@ -652,13 +652,14 @@ class BartStep(object):
 
 
 class BartModel(samplers.Sampler):
-    def __init__(self, X, y, alpha=0.95, beta=2.0):
+    def __init__(self, X, y, m=200, alpha=0.95, beta=2.0):
         """
         Constructor for BART model class. This class will build the BART model and run the MCMC sampler based on this
         model, enabling Bayesian inference.
 
         @param X: The array of measured features, of shape (n_samples, n_features).
         @param y: The array of measured response values, size n_samples.
+        @param m: The number of trees in the model.
         @param alpha: A tree configuration prior parameter, controlling the probability of a terminal node splitting. In
             the notation of Chipman et al. (2010).
         @param beta: A tree configuration prior parameter, controlling the probability of a terminal node splitting
@@ -671,6 +672,7 @@ class BartModel(samplers.Sampler):
 
         # Hyperparameters for growing the trees.  Keep them more
         # compact than CART since there are more of them
+        self.m = m
         self.alpha = alpha
         self.beta = beta
 
@@ -679,28 +681,9 @@ class BartModel(samplers.Sampler):
         self.ymax = self.y.max()
 
         # Rescale y to lie between -0.5 and 0.5
-        self.y -= self.ymin # minimum = 0
-        self.y /= self.ymax # maximum = 1
-        self.y -= 0.5          # range is -0.5 to 0.5
-
-        ##### TODO: Pretty sure this goes with the variance parameter object
-        if True:
-            sigma = np.std(self.y)
-        else:
-            regressor = linear_model.LassoCV(normalize=True, fit_intercept=True)
-            fit = regressor.fit(X, y)
-            sigma = np.mean(fit.predict(X) - y)
-        self.sigsqr = sigma**2
-
-        self.nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
-        self.q = 0.90 # The quantile of the prior that the sigma2 estimate is placed at
-        qchi = stats.chi2.interval(self.q, self.nu)[1]
-        self.lamb = self.sigsqr * qchi / self.nu
-
-        self.k = 2       # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
-        self.m = m       # Number of trees
-        self.prior_mu  = 0.0  # prior mean of mu values for terminal nodes
-        self.prior_mu_var = 1.0 / (4.0 * self.k * self.k * self.mtrees)  # prior variance of mu values
+        self.y -= self.ymin  # minimum = 0
+        self.y /= self.ymax  # maximum = 1
+        self.y -= 0.5        # range is -0.5 to 0.5
 
         # Build the ensemble of tree configurations and mu values for the terminal nodes
         self.trees = []
@@ -708,12 +691,15 @@ class BartModel(samplers.Sampler):
         for m in range(self.m):
             bname = 'BART ' + str(m + 1)
             mname = 'Mu ' + str(m + 1)
-            self.trees.append(BartTreeParameter(bname, self.X, self.y, self.m, self.alpha, self.beta, self.prior_mu,
-                self.prior_var))
             self.mus.append(BartMeanParameter(mname, self.m))
+            self.trees.append(BartTreeParameter(bname, self.X, self.y, self.m, alpha=self.alpha, beta=self.beta,
+                                                prior_mu=self.mus[m].mubar, prior_var=self.mus[m].prior_var))
 
-    def _setup_prior(self):
-        pass
+        # Create the variance parameter object
+        self.sigsqr = BartVariance(self.X, self.y)
+
+        # now construct the MCMC sampler: a sequence of steps
+        self._build_sampler()
 
     def _build_sampler(self):
         pass
