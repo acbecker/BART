@@ -545,7 +545,7 @@ class BartProposal(proposals.Proposal):
         @param current_tree: The current tree configuration, an instance of the BaseTree class.
         @param forward: A boolean indicating whether to calculate the forward transition or not. This is just for
             convenience, since only the forward transition is calculated for computational efficiency.
-        @return: The logarith of the ratio of the transition kernels and the priors.
+        @return: The logarithm of the ratio of the transition kernels and the priors.
         """
         if not forward:
             # only do calculation for forward transition, since factors cancel in MH ratio
