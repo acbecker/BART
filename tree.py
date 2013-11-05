@@ -364,10 +364,6 @@ class BartTreeParameter(steps.Parameter):
         """
         lnlike = 0.0
 
-        # Precalculate terms
-        t2  = np.log((self.nu * self.lamb)**(0.5 * self.nu))
-        t4b = gammaln(0.5 * self.nu)
-
         for node in tree.terminalNodes:
 
             npts = node.npts
