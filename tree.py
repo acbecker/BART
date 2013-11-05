@@ -291,10 +291,7 @@ class BartTreeParameter(steps.Parameter):
         self.value = BaseTree(X, y)  # parameter 'value' is the tree configuration
 
         # Setup up the prior distribution
-        self.k = 2  # Hyperparameter that yields 95% probability that E(Y|x) is in interval ymin, ymax
-        self.mubar = 0.0  # shrink values of mu for each terminal node toward zero
         self.mtrees = mtrees  # the number of trees in the BART model
-        self.k = 2.0  # parameter controlling prior variance, i.e., shrinkage amplitude
         self.mubar = prior_mu
         self.prior_mu_var = prior_var
 
@@ -665,10 +662,13 @@ class BartModel(samplers.Sampler):
         @param beta: A tree configuration prior parameter, controlling the probability of a terminal node splitting
             given its depth. In the notationof Chipman et al. (2010).
         """
+        super(BartModel, self).__init__()
+        delattr(self, 'mcmc_samples')  # can't store values in instance of MCMCSample class for BART, so remove it
+
         self.X = X
         self.y = y
         self.n_features = X.shape[1]
-        self.n_samples  = X.shape[0]
+        self.n_samples = X.shape[0]
 
         # Hyperparameters for growing the trees.  Keep them more
         # compact than CART since there are more of them
@@ -701,12 +701,89 @@ class BartModel(samplers.Sampler):
         # now construct the MCMC sampler: a sequence of steps
         self._build_sampler()
 
+        prior_info = {'alpha': self.alpha, 'beta': self.beta, 'prior_mean': self.mus[0].mubar,
+                      'prior_var': self.mus[0].prior_var, 'lamb': self.sigsqr.lamb, 'nu': self.sigsqr.nu}
+        self.mcmc_samples = BartSample(X, y, m, prior_info)  # store MCMC samples in instance of BartSample class
+
+        self._logliks = []
+
     def _build_sampler(self):
+        # First do a Gibbs update for the variance parameter
+        """
+        Internal method for building the MCMC sampler. The MCMC sampler consists of a Gibbs update on the variance
+        parameter, followed by a series of updates to the tree configuration and terminal node mean parameters for each
+        tree in the ensemble.
+        """
+        self.add_step(steps.GibbStep(self.sigsqr))
+
+        # Alternate between updating the tree configuration and then the terminal node means for each tree
+        self.add_step(BartStep(self.y, self.trees, self.mus))
+
+    def _allocate_arrays(self):
+        """
+        Build dictionary of saved values from MCMC sampler. This dictionary is stored in an instance of BartSample
+        class.
+        """
+        for step in self._steps:
+            if step._parameter.track:
+                # We are saving this parameter's values as a list, so add to dictionary of samples.
+                self.mcmc_samples.samples[step._parameter.name] = []
+
+    def save_values(self):
+        """
+        Add the current parameter values to the list of MCMC samples.
+        """
+        self.mcmc_samples.samples[self.sigsqr.name].append(self.sigsqr.value)
+        marginal_loglik = 0.0
+        for tree, mu in zip(self.trees, self.mus):
+            self.mcmc_samples.samples[tree.name].append(tree.value)
+            self.mcmc_samples.samples[mu.name].append(mu.value)
+            marginal_loglik += tree._log_posterior
+
+        self._logliks.append(marginal_loglik)  # save marginal log-posteriors for tree configurations
+
+
+class BartSample(object):
+    def __init__(self, ytrain, m, prior_info, Xtrain=None):
+        """
+        Constructor class used to access and use the MCMC samples for a BART model. This class can be used to directly
+        access the values of the BART variance, tree configurations, and means of the terminal nodes. In addition,
+        the member functions enable one to use the MCMC samples to predict the value of the response at an input set
+        of predictors, as well as make feature importance or partial dependency plots.
+
+        @param ytrain: The values of the response used to train the model.
+        @param m: The number of tree used in the BART ensemble.
+        @param prior_info: A dictionary containing the values of the prior hyperparameters.
+        @param Xtrain: The array of predictors used to train the model.
+        """
+        self.Xtrain = Xtrain
+        self.ytrain = ytrain
+        self.m = m
+        self.n_features = X.shape[1]
+        self.n_samples = X.shape[0]
+
+        self.ymin = self.ytrain.min()  # needed for translating the BART output to the original data scale
+        self.ymax = self.ytrain.max()
+
+        # dictionary containing the values of the prior hyperparameters
+        self.prior_info = prior_info
+
+        self.samples = {}  # the MCMC samples are stored here
+
+    def predict(self, x):
         pass
 
+    def feature_importance(self):
+        pass
 
+    def plot_feature_importance(self):
+        pass
 
+    def partial_dependence(self):
+        pass
 
+    def plot_partial_dependence(self):
+        pass
 
 #### CartTree class is untested, not finished, and probably will not work. It is only left here just in case we
 #### we want to use it later.
