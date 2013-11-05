@@ -117,7 +117,6 @@ class MetroStep(Step):
         """
         Constructor for Metropolis-Hastings step object.
 
-
         :param parameter: The parameter object associated with this step.
         :param proposal: The proposal object used to generate parameter value proposals.
         :param report_iter: Report on the acceptance rate after this meany iterations of the MCMC sampler.
