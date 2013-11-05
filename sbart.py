@@ -9,25 +9,33 @@ class AdjacencyMatrix(object):
     def makeMatrix(self, i, nneighbors):
         pass
 
-class InverseSquaredAdjacencyMatrix(AdjacencyMatrix):
-    def __init__(self, distances):
+class InversePowerAdjacencyMatrix(AdjacencyMatrix):
+    def __init__(self, distances, power):
         AdjacencyMatrix.__init__(distances)
+
+        self.power = power
+        assert(self.power in [-1, -2])
+
     def makeMatrix(self, i, nneighbors):
         ddist  = self.distances[:,i]
         idx    = np.argsort(ddist)[1:] # Ignore self!
-        matrix = 1. / ddist**2
+        matrix = ddist**self.power
         return idx[:nneighbors], matrix[idx[:nneighbors]]
 
 
 class ExponentialAdjacencyMatrix(AdjacencyMatrix):
-    def __init__(self, distances, rdist):
+    def __init__(self, distances, rdist, power):
         AdjacencyMatrix.__init__(distances)
+
         self.rdist = rdist
         assert(self.rdist < 0.0)
+        self.power = power
+        assert(self.power in [1,2])
+
     def makeMatrix(self, i, nneighbors):
         ddist  = self.distances[:,i]
         idx    = np.argsort(ddist)[1:] # Ignore self!
-        matrix = np.exp(rdist * ddist)
+        matrix = np.exp(rdist * ddist**self.power)
         return idx[:nneighbors], matrix[idx[:nneighbors]]
 
 
