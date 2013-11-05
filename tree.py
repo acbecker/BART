@@ -3,6 +3,7 @@ import collections
 import scipy.stats as stats
 from scipy.special import gammaln
 import steps
+import samplers
 import proposals
 import copy
 from sklearn import linear_model
@@ -238,34 +239,15 @@ class BaseTree(object):
             self.calcInternalNodes_(node.Right)
         if node.Left is not None:
             self.calcInternalNodes_(node.Left)
-            
-    # Filter the data that end up in each (terminal) node; return
-    # their locations
+
     def filter(self, node):
         """
-        Find the data points that end up in the input node by dropping them down the tree.
+        Find the data points that end up in the input node by dropping them down the tree, and save the first and
+        second moments of the y-values in this node.
 
         @param node: The node for which the data points are desired.
         @return: A tuple of two boolean arrays indicating whether the a data point ends up in the input node.
         """
-        includeX = np.ones(self.X.shape, dtype=np.bool)
-
-    def plinko(self, node, data):
-
-        includeX = np.ones(data.shape, dtype=np.bool)
-        n = node
-        while n.Parent is not None:
-            if n.is_left:
-                includeX[:,n.Parent.feature] &= data[:,n.Parent.feature] <=  n.Parent.threshold
-            else:
-                includeX[:,n.Parent.feature] &= data[:,n.Parent.feature] >   n.Parent.threshold
-            n = n.Parent
-        return includeX
-        
-    
-    # Filter the data that end up in each (terminal) node; return
-    # their locations
-    def filter(self, node):
         includeX = self.plinko(node, self.X)
         includeY = np.all(includeX, axis=1)
 
@@ -274,12 +256,31 @@ class BaseTree(object):
         node.yvar = np.std(self.y[includeY])**2
         node.npts = np.sum(includeY)
 
-        return includeX, includeY
+        return includeX, includeY  # TODO: do we really need to return includeX?
+
+    def plinko(self, node, data):
+        """
+        Return the indices of the X-values that end up in the input node.
+
+        @param node: The node for which the data point indices are desired.
+        @param data: The array of predictors.
+        @return: The indices of the predictors in this node.
+        """
+        includeX = np.ones(data.shape, dtype=np.bool)
+        n = node
+        while n.Parent is not None:
+            if n.is_left:
+                includeX[:, n.Parent.feature] &= data[:, n.Parent.feature] <= n.Parent.threshold
+            else:
+                includeX[:, n.Parent.feature] &= data[:, n.Parent.feature] > n.Parent.threshold
+            n = n.Parent
+
+        return includeX
 
 
 class BartTreeParameter(steps.Parameter):
 
-    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, track=True):
+    def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, prior_mu=0.0, prior_var=2.0, track=True):
         """
         Constructor for Bart tree configuration parameter class. The tree configuration is treated as a Parameter object
         to be sampled using a MCMC sampler. The 'value' of this parameter is an instance of BaseTree, which is updated
@@ -291,6 +292,8 @@ class BartTreeParameter(steps.Parameter):
         @param mtrees: The number of trees used in the BART model
         @param alpha: Prior parameter on the tree shape, same the notation of Chipman et al. (2010).
         @param beta: Prior parameter controlling the tree depth, same notation of Chipman et al. (2010).
+        @param prior_mu: The prior mean for the terminal node mean parameters.
+        @param prior_var: The prior variance for the terminal node mean parameters.
         @param track: When this parameter is tracked (i.e., whether the values are saved) in the MCMC sampler.
         """
         super(BartTreeParameter, self).__init__(name, track)
@@ -623,6 +626,30 @@ class BartStep(object):
             n_idx += 1
 
         return mu_map
+
+    def predict(self, data):
+        # TODO: Should move this to the BartSample class.
+        """
+        Predict the value of the response given the input data.
+
+        @param data: The array of predictors. Must have the same number of features (columns) as the training data.
+        @return: The predicted value(s) at the input data.
+        """
+        # data needs to be shape (self.npredict, self.nfeatures)
+        assert (data.shape[1] == self.n_features)
+        n_predict = data.shape[0]
+        node_mus = np.zeros((n_predict, self.m))
+
+        for m in range(self.m):
+            tree = self.trees[m]
+            mu = self.mus[m]
+            n_idx = 0
+            for node in tree.terminalNodes:
+                y_in_node = np.all(tree.plinko(node, data), axis=1)
+                assert(np.all(node_mus[y_in_node, m] == 0.0))
+                node_mus[y_in_node, m] = mu.value[n_idx]
+                n_idx += 1
+        return node_mus
 
     def do_step(self):
         """
