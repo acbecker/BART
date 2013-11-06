@@ -25,7 +25,6 @@ class Node(object):
         self.Parent    = parent # feature and threshold reside in the parent
         self.Left      = None   # data[:, feature] <= threshold
         self.Right     = None   # data[:, feature] > threshold
-        self.setThreshold(None, None)
 
         if self.Parent is not None:
             self.is_left = is_left
@@ -35,23 +34,56 @@ class Node(object):
                 parent.Right = self
             self.depth = self.Parent.depth + 1
         else:
+            self.is_left = None
             self.depth = 0
 
-        # Moments of the data that end up in this bin
-        self.ybar = 0.0
-        self.yvar = 0.0
-        self.npts = 0
+        self._ybar = 0.0
+        self._yvar = 0.0
+        self._npts = 0
 
-    # NOTE: the parent carries the threshold
-    def setThreshold(self, feature, threshold):
-        """
-        Set the feature and the value that the binary split occurs on.
+        # NOTE: the parent carries the feature and threshold to split upon
+        self._feature = -1
+        self._threshold = 0.0
 
-        @param feature: The split is on this feature's values.
-        @param threshold: The value of the feature seperating the left and right nodes.
-        """
-        self.feature = feature
-        self.threshold = threshold
+    def getybar(self):
+        return self._ybar
+    def setybar(self, value):
+        self._ybar = value
+    def delybar(self):
+        del self._ybar
+    ybar = property(getybar, setybar, delybar, "0th moment of data that end up in this node")
+
+    def getyvar(self):
+        return self._yvar
+    def setyvar(self, value):
+        self._yvar = value
+    def delyvar(self):
+        del self._yvar
+    yvar = property(getyvar, setyvar, delyvar, "Squared 1st moment of data that end up in this node")
+
+    def getnpts(self):
+        return self._npts
+    def setnpts(self, value):
+        self._npts = value
+    def delnpts(self):
+        del self._npts
+    npts = property(getnpts, setnpts, delnpts, "Number of data points that end up in this node")
+
+    def getfeat(self):
+        return self._feature
+    def setfeat(self, value):
+        self._feature = value
+    def delfeat(self):
+        del self._feature
+    feature = property(getfeat, setfeat, delfeat, "The binary split will be on this feature")
+
+    def getthresh(self):
+        return self._threshold
+    def setthresh(self, value):
+        self._threshold = value
+    def delthresh(self):
+        del self._threshold
+    threshold = property(getthresh, setthresh, delthresh, "The value of the feature seperating the left and right nodes")
 
 
 class BaseTree(object):
@@ -149,7 +181,8 @@ class BaseTree(object):
         """
         nleft  = Node(parent, True)  # Add left node; it registers with parent
         nright = Node(parent, False) # Add right node; it registers with parent
-        parent.setThreshold(feature, threshold)
+        parent.feature = feature
+        parent.threshold = threshold
 
         fxl, fyl = self.filter(nleft)
         fxr, fyr = self.filter(nright)
@@ -162,7 +195,8 @@ class BaseTree(object):
         else:
             del nleft
             del nright
-            parent.setThreshold(None, None)
+            parent.feature = None
+            parent.threshold = None
             parent.Left = None
             parent.Right = None
             return None, None

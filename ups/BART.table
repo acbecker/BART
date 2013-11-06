@@ -1,0 +1,1 @@
+envAppend(PYTHONPATH, ${PRODUCT_DIR})
