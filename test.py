@@ -77,6 +77,7 @@ class VarianceTestCase(unittest.TestCase):
         del self.X
         del self.y
         del self.true_sigsqr
+        del self.sigsqr
 
     def test_prior(self):
         nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
@@ -88,8 +89,8 @@ class VarianceTestCase(unittest.TestCase):
         # is the prior scale parameter within 5% of the expected value?
         frac_diff = np.abs(self.sigsqr.lamb - lamb) / lamb
 
-        prior_msg = "Fractional difference in prior scale parameter for variance parameter is greater than 5%"
-        self.assertLess(frac_diff, 0.05, msg=prior_msg)
+        prior_msg = "Fractional difference in prior scale parameter for variance parameter is greater than 10%"
+        self.assertLess(frac_diff, 0.10, msg=prior_msg)
 
     def test_random_posterior(self):
 
@@ -108,9 +109,17 @@ class VarianceTestCase(unittest.TestCase):
         igam_scale = post_dof * post_ssqr / 2.0
         igamma = stats.distributions.invgamma(igam_shape, scale=igam_scale)
 
-        ksstat, pvalue = stats.kstest(ssqr_draws, igamma.cdf)
-        gibbs_msg = 'KS-Test finds that BartVariance.random_posterior() deviates from theoretical distribution.'
-        self.assertGreater(pvalue, 0.01, msg=gibbs_msg)
+        # test draws from conditional posterior by comparing 1st and 2nd moments to true values
+        true_mean = igamma.moment(1)
+        frac_diff = np.abs(true_mean - ssqr_draws.mean()) / true_mean
+        rpmsg = "Fractional difference in mean from BartVariance.random_posterior() is greater than 2%"
+        self.assertLess(frac_diff, 0.02, msg=rpmsg)
+
+        true_ssqr = igamma.moment(2)
+        frac_diff = np.abs(true_ssqr - (ssqr_draws.var() + ssqr_draws.mean() ** 2)) / true_ssqr
+        rpmsg = "Fractional difference in 2nd moment from BartVariance.random_posterior() is greater than 2%"
+        self.assertLess(frac_diff, 0.02, msg=rpmsg)
+
 
 if __name__ == "__main__":
     unittest.main()
