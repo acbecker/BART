@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from scipy import stats
-from tree import CartTree, Node, BartVariance, BartMeanParameter, BartTreeParameter
+from tree import *
 
 class TreeTestCases(unittest.TestCase):
     def setUp(self):
@@ -119,6 +119,56 @@ class VarianceTestCase(unittest.TestCase):
         frac_diff = np.abs(true_ssqr - (ssqr_draws.var() + ssqr_draws.mean() ** 2)) / true_ssqr
         rpmsg = "Fractional difference in 2nd moment from BartVariance.random_posterior() is greater than 2%"
         self.assertLess(frac_diff, 0.02, msg=rpmsg)
+
+class MuTestCase(unittest.TestCase):
+
+    def setUp(self):
+        nsamples = 500
+        nfeatures = 2
+        self.alpha = 0.95
+        self.beta = 2.0
+        self.X = np.random.standard_cauchy((nsamples, nfeatures))
+        self.mu = BartMeanParameter("mu", 200)
+        ytemp = np.random.standard_normal(nsamples)
+        self.y = ytemp
+        self.mu.tree = BaseTree(self.X, ytemp)
+        # build the tree configuration by drawing from its prior
+        self.mu.tree.buildUniform(self.mu.tree.head, self.alpha, self.beta)
+        self.mu.sigsqr = BartVariance(self.X, self.y)
+        self.mu.sigsqr.bart_step = SimpleBartStep()
+        self.mu.sigsqr.value = 0.56
+        self.mu.set_starting_value(self.mu.tree)
+
+    def tearDown(self):
+        del self.X
+        del self.y
+        del self.mu
+
+    def test_random_posterior(self):
+        # first get values of mu drawn from their conditional posterior
+        ndraws = 100000
+        nleaves = len(self.mu.value)
+        mu_draws = np.empty((ndraws, nleaves))
+        for i in xrange(ndraws):
+            mu_draws[i, :] = self.mu.random_posterior()
+
+        for leaf in self.mu.tree.terminalNodes:
+            ny = leaf.npts
+            ybar = leaf.ybar
+            post_var = 1.0 / (1.0 / self.mu.prior_var + ny / self.mu.sigsqr.value)
+            post_mean = post_var * (self.mu.mubar / self.mu.prior_var + ny * ybar / self.mu.sigsqr.value)
+            post = stats.distributions.norm(post_mean, np.sqrt(post_var))
+
+            # test draws from conditional posterior by comparing 1st and 2nd moments to true values
+            true_mean = post.moment(1)
+            frac_diff = np.abs(true_mean - mu_draws.mean()) / true_mean
+            rpmsg = "Fractional difference in mean from BartMeanParameter.random_posterior() is greater than 2%"
+            self.assertLess(frac_diff, 0.02, msg=rpmsg)
+
+            true_ssqr = post.moment(2)
+            frac_diff = np.abs(true_ssqr - (mu_draws.var() + mu_draws.mean() ** 2)) / true_ssqr
+            rpmsg = "Fractional difference in 2nd moment from BartMeanParameter.random_posterior() is greater than 2%"
+            self.assertLess(frac_diff, 0.02, msg=rpmsg)
 
 
 if __name__ == "__main__":

@@ -407,7 +407,7 @@ class BartMeanParameter(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
+        self.tree = None  # the instance of BaseTree class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
     def set_starting_value(self, tree):
@@ -438,7 +438,7 @@ class BartMeanParameter(steps.Parameter):
             ymean_in_node = node.ybar
 
             post_var = 1.0 / (1.0 / self.prior_var + ny_in_node / self.sigsqr.value)
-            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr.value
+            post_mean = post_var * (self.mubar / self.prior_var + ny_in_node * ymean_in_node / self.sigsqr.value)
 
             mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
             n_idx += 1
