@@ -412,8 +412,7 @@ class BartTreeParameter(steps.Parameter):
 
             npts = node.npts
             if npts == 0:
-                # Damn, this should not happen.
-                # DEBUG ME
+                # empty nodes do not contribute to the log-likelihood
                 continue
 
             ymean = node.ybar
@@ -422,7 +421,7 @@ class BartTreeParameter(steps.Parameter):
             post_var = self.prior_mu_var + self.sigsqr.value / npts
             zsqr = (ymean - self.mubar) ** 2 / post_var
 
-            lnlike += -0.5 * np.log(self.sigsqr.value / npts) - 0.5 * zsqr
+            lnlike += -0.5 * np.log(post_var) - 0.5 * zsqr
 
         return lnlike
 
