@@ -3,12 +3,13 @@ import numpy as np
 from scipy import stats
 from tree import *
 
+
 class TreeTestCases(unittest.TestCase):
     def setUp(self):
-        nsamples  = 100
+        nsamples = 100
         nfeatures = 10
-        self.X    = np.random.random((nsamples, nfeatures)) - 0.5
-        self.y    = np.random.random((nfeatures)) - 0.5
+        self.X = np.random.random((nsamples, nfeatures)) - 0.5
+        self.y = np.random.random((nfeatures)) - 0.5
         self.tree = CartTree(self.X, self.y)
 
     def tearDown(self):
@@ -19,23 +20,23 @@ class TreeTestCases(unittest.TestCase):
     def testGrow(self):
         headId = self.tree.head.Id
         self.tree.grow(1, 0.0)
-        self.assertTrue([x.Id-headId for x in self.tree.terminalNodes] == [2, 1])
-        self.assertTrue([x.Id-headId for x in self.tree.internalNodes] == [0])
+        self.assertTrue([x.Id - headId for x in self.tree.terminalNodes] == [2, 1])
+        self.assertTrue([x.Id - headId for x in self.tree.internalNodes] == [0])
 
     def testSplit(self):
         headId = self.tree.head.Id
         self.tree.split(self.tree.head, 1, 0.0)
         self.tree.split(self.tree.head.Left, 2, 0.0)
         self.tree.split(self.tree.head.Left.Right, 3, 0.0)
-        self.assertTrue([x.Id-headId for x in self.tree.terminalNodes] == [2, 6, 5, 3])
-        self.assertTrue([x.Id-headId for x in self.tree.internalNodes] == [0, 1, 4])
+        self.assertTrue([x.Id - headId for x in self.tree.terminalNodes] == [2, 6, 5, 3])
+        self.assertTrue([x.Id - headId for x in self.tree.internalNodes] == [0, 1, 4])
 
     def testPrune(self):
         headId = self.tree.head.Id
         self.tree.split(self.tree.head, 1, 0.0)
         self.tree.prune()
-        self.assertTrue([x.Id-headId for x in self.tree.terminalNodes] == [0])
-        self.assertTrue([x.Id-headId for x in self.tree.internalNodes] == [])
+        self.assertTrue([x.Id - headId for x in self.tree.terminalNodes] == [0])
+        self.assertTrue([x.Id - headId for x in self.tree.internalNodes] == [])
 
     def testChange(self):
         headId = self.tree.head.Id
@@ -93,7 +94,6 @@ class VarianceTestCase(unittest.TestCase):
         self.assertLess(frac_diff, 0.10, msg=prior_msg)
 
     def test_random_posterior(self):
-
         ndraws = 100000
         ssqr_draws = np.empty(ndraws)
         for i in xrange(ndraws):
@@ -120,8 +120,8 @@ class VarianceTestCase(unittest.TestCase):
         rpmsg = "Fractional difference in 2nd moment from BartVariance.random_posterior() is greater than 2%"
         self.assertLess(frac_diff, 0.02, msg=rpmsg)
 
-class MuTestCase(unittest.TestCase):
 
+class MuTestCase(unittest.TestCase):
     def setUp(self):
         nsamples = 500
         nfeatures = 2
@@ -129,14 +129,19 @@ class MuTestCase(unittest.TestCase):
         self.beta = 2.0
         self.X = np.random.standard_cauchy((nsamples, nfeatures))
         self.mu = BartMeanParameter("mu", 200)
-        ytemp = np.random.standard_normal(nsamples)
-        self.y = ytemp
-        self.mu.tree = BaseTree(self.X, ytemp)
-        # build the tree configuration by drawing from its prior
-        self.mu.tree.buildUniform(self.mu.tree.head, self.alpha, self.beta)
+        self.y = 3.0 + np.random.standard_normal(nsamples)
+        # Rescale y to lie between -0.5 and 0.5
+        self.y -= self.y.min()  # minimum = 0
+        self.y /= self.y.max()  # maximum = 1
+        self.y -= 0.5      # range is -0.5 to 0.5
+        self.mu.tree = BaseTree(self.X, self.y)
+        # build the tree configuration by performing a sequence of grow updates
+        ngrows = 5
+        for i in xrange(ngrows):
+            self.mu.tree.grow()
         self.mu.sigsqr = BartVariance(self.X, self.y)
         self.mu.sigsqr.bart_step = SimpleBartStep()
-        self.mu.sigsqr.value = 0.56
+        self.mu.sigsqr.value = self.y.var()
         self.mu.set_starting_value(self.mu.tree)
 
     def tearDown(self):
@@ -152,23 +157,24 @@ class MuTestCase(unittest.TestCase):
         for i in xrange(ndraws):
             mu_draws[i, :] = self.mu.random_posterior()
 
+        l_idx = 0
         for leaf in self.mu.tree.terminalNodes:
             ny = leaf.npts
             ybar = leaf.ybar
             post_var = 1.0 / (1.0 / self.mu.prior_var + ny / self.mu.sigsqr.value)
             post_mean = post_var * (self.mu.mubar / self.mu.prior_var + ny * ybar / self.mu.sigsqr.value)
-            post = stats.distributions.norm(post_mean, np.sqrt(post_var))
 
             # test draws from conditional posterior by comparing 1st and 2nd moments to true values
-            true_mean = post.moment(1)
-            frac_diff = np.abs(true_mean - mu_draws.mean()) / true_mean
-            rpmsg = "Fractional difference in mean from BartMeanParameter.random_posterior() is greater than 2%"
+            zscore = np.abs((post_mean - mu_draws[:, l_idx].mean())) / np.sqrt(post_var / ndraws)
+            rpmsg = "Sample mean from BartMeanParameter.random_posterior() differs by more than 3-sigma."
+            self.assertLess(zscore, 3.0, msg=rpmsg)
+
+            frac_diff = np.abs(np.sqrt(post_var) - mu_draws[:, l_idx].std()) / np.sqrt(post_var)
+            rpmsg = "Fractional difference in standard deviation from BartMeanParameter.random_posterior() is greater" \
+                + " than 2%"
             self.assertLess(frac_diff, 0.02, msg=rpmsg)
 
-            true_ssqr = post.moment(2)
-            frac_diff = np.abs(true_ssqr - (mu_draws.var() + mu_draws.mean() ** 2)) / true_ssqr
-            rpmsg = "Fractional difference in 2nd moment from BartMeanParameter.random_posterior() is greater than 2%"
-            self.assertLess(frac_diff, 0.02, msg=rpmsg)
+            l_idx += 1
 
 
 if __name__ == "__main__":
