@@ -120,22 +120,25 @@ class BaseTree(object):
         @param depth: The depth of the current node.
         @return:
         """
+        assert(beta > 0.0)
+        assert(alpha < 1.0)
+        assert(alpha >= 0.0)
         psplit = alpha * (1 + depth)**-beta
         rand   = np.random.uniform()
         if rand < psplit:
-            feature, threshold, ndata = self.prule(node)
+            feature, threshold = self.prule(node)
             if feature is None or threshold is None:
                 print "NO DATA LEFT, rejecting split"
                 return
             nleft, nright = self.split(node, feature, threshold)
-            if nleft is not None and nright is not None:
-                print "EXTENDING node", node.Id, "to depth", depth+1
+            if (nleft is not None) and (nright is not None):
+                print "EXTENDING node", node.Id, "to depth", depth+1, "(%.2f < %.2f)" % (rand, psplit)
                 self.buildUniform(nleft, alpha, beta, depth=depth+1)
                 self.buildUniform(nright, alpha, beta, depth=depth+1)
             else:
-                print "NOT EXTENDING node", node.Id, ": too few points"
+                print "NOT EXTENDING node", node.Id, ": too few points (%d=%.2f)" % (feature, threshold)
         else:
-            print "NOT SPLITTING node", node.Id, ": did not pass random draw"
+            print "NOT SPLITTING node", node.Id, ": did not pass random draw (%.2f > %.2f at depth %d)" % (rand, psplit, depth)
             
     def prule(self, node):
         """
@@ -152,7 +155,7 @@ class BaseTree(object):
             return None, None, None
         idxD = np.random.randint(len(data))
         threshold = data[idxD]
-        return feature, threshold, len(data)
+        return feature, threshold
 
     def grow(self):
         """
@@ -163,9 +166,9 @@ class BaseTree(object):
         """
         nodes = self.terminalNodes
         rnode = nodes[np.random.randint(len(nodes))]
-        feature, threshold, ndata_in_node = self.prule(rnode)
+        feature, threshold = self.prule(rnode)
         if feature is None or threshold is None:
-            return
+            return None
         self.split(rnode, feature, threshold)
 
         return rnode
@@ -179,6 +182,9 @@ class BaseTree(object):
         @param threshold: The threshold value of feature for the split.
         @return: The new left and right node objects resulting from the split.
         """
+        if parent.Left is not None or parent.Right is not None:
+            return None, None
+
         nleft  = Node(parent, True)  # Add left node; it registers with parent
         nright = Node(parent, False) # Add right node; it registers with parent
         parent.feature = feature
@@ -210,7 +216,7 @@ class BaseTree(object):
         """
         dparents = self.get_terminal_parents()
         if len(dparents) == 0:
-            return
+            return None
         parent   = dparents[np.random.randint(len(dparents))]
         # collapse node
         parent.Left = None
@@ -274,24 +280,6 @@ class BaseTree(object):
         if node.Left is not None:
             self.calcInternalNodes_(node.Left)
 
-    def filter(self, node):
-        """
-        Find the data points that end up in the input node by dropping them down the tree, and save the first and
-        second moments of the y-values in this node.
-
-        @param node: The node for which the data points are desired.
-        @return: A tuple of two boolean arrays indicating whether the a data point ends up in the input node.
-        """
-        includeX = self.plinko(node, self.X)
-        includeY = np.all(includeX, axis=1)
-
-        # Set the node values
-        node.ybar = np.mean(self.y[includeY])
-        node.yvar = np.std(self.y[includeY])**2
-        node.npts = np.sum(includeY)
-
-        return includeX, includeY  # TODO: do we really need to return includeX?
-
     def plinko(self, node, data):
         """
         Return the indices of the X-values that end up in the input node.
@@ -310,6 +298,28 @@ class BaseTree(object):
             n = n.Parent
 
         return includeX
+
+
+    def filter(self, node):
+        """
+        Find the data points that end up in the input node by dropping them down the tree, and save the first and
+        second moments of the y-values in this node.
+
+        @param node: The node for which the data points are desired.
+        @return: A tuple of two boolean arrays indicating whether the a data point ends up in the input node.
+        """
+        includeX = self.plinko(node, self.X)
+        includeY = np.all(includeX, axis=1)
+        if not True in includeY:
+            return includeX, includeY
+
+        # Set the node values
+        node.ybar = np.mean(self.y[includeY])
+        node.yvar = np.std(self.y[includeY])**2
+        node.npts = np.sum(includeY)
+
+        return includeX, includeY  # TODO: do we really need to return includeX?
+
 
 
 class BartTreeParameter(steps.Parameter):
