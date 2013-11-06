@@ -451,7 +451,7 @@ class BartMeanParameter(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
+        self.tree = None  # the instance of BaseTree class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
     def set_starting_value(self, tree):
@@ -482,7 +482,7 @@ class BartMeanParameter(steps.Parameter):
             ymean_in_node = node.ybar
 
             post_var = 1.0 / (1.0 / self.prior_var + ny_in_node / self.sigsqr.value)
-            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr.value
+            post_mean = post_var * (self.mubar / self.prior_var + ny_in_node * ymean_in_node / self.sigsqr.value)
 
             mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
             n_idx += 1
@@ -505,7 +505,7 @@ class BartVariance(steps.Parameter):
         self.y = y
 
         # set prior parameter values
-        use_naive_prior = True
+        use_naive_prior = False
         if use_naive_prior:
             sigma_hat = np.std(self.y)
         else:
@@ -516,7 +516,7 @@ class BartVariance(steps.Parameter):
         self.nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
         self.q = 0.90  # The quantile of the prior that the sigma2 estimate is placed at
 
-        qchi = stats.chi2.interval(self.nu, self.q)[1]
+        qchi = stats.chi2.interval(self.q, self.nu)[1]
         # scale parameter for error variance scaled inverse-chi-square prior
         self.lamb = sigma_hat ** 2 * qchi / self.nu
 

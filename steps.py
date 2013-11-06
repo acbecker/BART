@@ -37,7 +37,6 @@ class Parameter(object):
         self._temperature = temperature
         self._log_posterior = 0.0
         self.value = 0.0
-        self.set_starting_value()
 
     def set_starting_value(self):
         """
