@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 from scipy import stats
 from tree import *
+import matplotlib.pyplot as plt
 
 
 # generate test data from a single tree
@@ -17,8 +18,9 @@ def build_test_data(X, sigsqr, ngrow=5):
     n_idx = 0
     y = np.zeros(len(ytemp))
     for leaf in tree.terminalNodes:
-        x_in_node, y_in_node = tree.filter(leaf)
+        y_in_node = tree.filter(leaf)[1]
         y[y_in_node] = mu[n_idx] + np.sqrt(sigsqr) * np.random.standard_normal(leaf.npts)
+        n_idx += 1
 
     tree.y = y
 
