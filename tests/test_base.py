@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
-from tree import Node, BaseTree
+from tree import BaseTree
 
-class TreeTestCases(unittest.TestCase):
+class BaseTreeTestCases(unittest.TestCase):
     def setUp(self):
         self.nsamples  = 100
         self.nfeatures = 10
