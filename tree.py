@@ -461,7 +461,7 @@ class BartVariance(steps.Parameter):
         self.y = y
 
         # set prior parameter values
-        use_naive_prior = True
+        use_naive_prior = False
         if use_naive_prior:
             sigma_hat = np.std(self.y)
         else:
@@ -472,7 +472,7 @@ class BartVariance(steps.Parameter):
         self.nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
         self.q = 0.90  # The quantile of the prior that the sigma2 estimate is placed at
 
-        qchi = stats.chi2.interval(self.nu, self.q)[1]
+        qchi = stats.chi2.interval(self.q, self.nu)[1]
         # scale parameter for error variance scaled inverse-chi-square prior
         self.lamb = sigma_hat ** 2 * qchi / self.nu
 

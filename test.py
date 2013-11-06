@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
-from tree import CartTree, Node
+from scipy import stats
+from tree import CartTree, Node, BartVariance, BartMeanParameter, BartTreeParameter
 
 class TreeTestCases(unittest.TestCase):
     def setUp(self):
@@ -54,6 +55,62 @@ class TreeTestCases(unittest.TestCase):
         self.tree.split(self.tree.head, 1, 0.0)
         self.tree.split(self.tree.head.Left, 2, 0.0)
         self.tree.swap()
+
+
+class SimpleBartStep(object):
+    def __init__(self):
+        self.nsamples = 500
+        self.resids = np.random.standard_normal(self.nsamples)
+
+
+class VarianceTestCase(unittest.TestCase):
+    def setUp(self):
+        nsamples = 500
+        nfeatures = 2
+        self.X = np.random.standard_cauchy((nsamples, nfeatures))
+        self.true_sigsqr = 0.7 ** 2
+        self.y = 2.0 + self.X[:, 0] + np.sqrt(self.true_sigsqr) * np.random.standard_normal(nsamples)
+        self.sigsqr = BartVariance(self.X, self.y)
+        self.sigsqr.bart_step = SimpleBartStep()
+
+    def tearDown(self):
+        del self.X
+        del self.y
+        del self.true_sigsqr
+
+    def test_prior(self):
+        nu = 3.0  # Degrees of freedom for error variance prior; should always be > 3
+        q = 0.90  # The quantile of the prior that the sigma2 estimate is placed at
+        qchi = stats.chi2.interval(q, nu)[1]
+        # scale parameter for error variance scaled inverse-chi-square prior
+        lamb = self.true_sigsqr * qchi / nu
+
+        # is the prior scale parameter within 5% of the expected value?
+        frac_diff = np.abs(self.sigsqr.lamb - lamb) / lamb
+
+        prior_msg = "Fractional difference in prior scale parameter for variance parameter is greater than 5%"
+        self.assertLess(frac_diff, 0.05, msg=prior_msg)
+
+    def test_random_posterior(self):
+
+        ndraws = 100000
+        ssqr_draws = np.empty(ndraws)
+        for i in xrange(ndraws):
+            ssqr_draws[i] = self.sigsqr.random_posterior()
+
+        nu = self.sigsqr.nu
+        prior_ssqr = self.sigsqr.lamb
+
+        post_dof = nu + len(self.y)
+        post_ssqr = (nu * prior_ssqr + np.sum(self.sigsqr.bart_step.resids ** 2)) / post_dof
+
+        igam_shape = post_dof / 2.0
+        igam_scale = post_dof * post_ssqr / 2.0
+        igamma = stats.distributions.invgamma(igam_shape, scale=igam_scale)
+
+        ksstat, pvalue = stats.kstest(ssqr_draws, igamma.cdf)
+        gibbs_msg = 'KS-Test finds that BartVariance.random_posterior() deviates from theoretical distribution.'
+        self.assertGreater(pvalue, 0.01, msg=gibbs_msg)
 
 if __name__ == "__main__":
     unittest.main()
