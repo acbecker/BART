@@ -79,7 +79,7 @@ class SBart(object):
         assert(self.s.shape == (self.n_samples_x))
 
         # Smoothing spatial correlation parameter for Conditionally Autoregressive Model
-        # rho = -1: 
+        # rho = -1: not sure what this signifies; anticorrelated?
         # rho =  0: diagonal variance matrix, samples are independent 
         # rho = +1: conditional mean is average of its neighbors
         self.rho = rho
