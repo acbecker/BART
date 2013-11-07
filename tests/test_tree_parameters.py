@@ -117,31 +117,43 @@ class VarianceTestCase(unittest.TestCase):
 
 class MuTestCase(unittest.TestCase):
     def setUp(self):
-        nsamples = 500
+        nsamples = 2000
         nfeatures = 2
         self.alpha = 0.95
         self.beta = 2.0
         self.X = np.random.standard_cauchy((nsamples, nfeatures))
-        self.mu = BartMeanParameter("mu", 200)
-        self.y = 3.0 + np.random.standard_normal(nsamples)
+        self.true_sigsqr = 0.7 ** 2
+        tree, mu = build_test_data(self.X, self.true_sigsqr)
+        self.tree = tree
+        self.true_mu = mu
+        self.y = tree.y
+        self.mtrees = 1  # single tree model
+        self.mu = BartMeanParameter("mu", 1)
+        self.mu.tree = tree
         # Rescale y to lie between -0.5 and 0.5
+        self.true_mu -= self.y.min()
         self.y -= self.y.min()  # minimum = 0
+        self.true_mu /= self.y.max()
+        self.true_sigsqr /= self.y.max() ** 2
         self.y /= self.y.max()  # maximum = 1
-        self.y -= 0.5      # range is -0.5 to 0.5
-        self.mu.tree = BaseTree(self.X, self.y)
-        # build the tree configuration by performing a sequence of grow updates
-        ngrows = 5
-        for i in xrange(ngrows):
-            self.mu.tree.grow()
+        self.true_mu -= 0.5
+        self.y -= 0.5  # range is -0.5 to 0.5
+
+        # update moments of y-values in each terminal node since we transformed the data
+        for leaf in self.tree.terminalNodes:
+            self.tree.filter(leaf)
+
         self.mu.sigsqr = BartVariance(self.X, self.y)
         self.mu.sigsqr.bart_step = SimpleBartStep()
-        self.mu.sigsqr.value = self.y.var()
-        self.mu.set_starting_value(self.mu.tree)
+        self.mu.sigsqr.value = self.true_sigsqr
+
+        self.mu.set_starting_value(self.tree)
 
     def tearDown(self):
         del self.X
         del self.y
         del self.mu
+        del self.tree
 
     def test_random_posterior(self):
         # first get values of mu drawn from their conditional posterior
@@ -167,6 +179,14 @@ class MuTestCase(unittest.TestCase):
             rpmsg = "Fractional difference in standard deviation from BartMeanParameter.random_posterior() is greater" \
                 + " than 2%"
             self.assertLess(frac_diff, 0.02, msg=rpmsg)
+
+            # make sure gibbs sampler constrains the correct value
+            mu_low = np.percentile(mu_draws[:, l_idx], 1.0)
+            mu_high = np.percentile(mu_draws[:, l_idx], 99.0)
+            rpmsg = "Value of Terminal Node output parameter returned by Gibbs sampler is outside of 99% credibility" \
+                + " interval.\n Violated: " + str(mu_low) + ' < ' + str(self.true_mu[l_idx]) + ' < ' + str(mu_high)
+            self.assertGreater(self.true_mu[l_idx], mu_low, msg=rpmsg)
+            self.assertLess(self.true_mu[l_idx], mu_high, msg=rpmsg)
 
             l_idx += 1
 
