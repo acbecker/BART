@@ -604,7 +604,10 @@ class BartProposal(proposals.Proposal):
             2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
 
         # get log ratio of transition kernels
-        if self._operation == 'grow':
+        if self._node is None or self._node.feature is None:
+            # tree configuration is unchanged since we could not perform the chosen move
+            return 0.0
+        elif self._operation == 'grow':
             ntnodes = len(current_tree.terminalNodes)
             ntparents = len(proposed_tree.get_terminal_parents())
             logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
