@@ -199,7 +199,13 @@ class TreeTestCase(unittest.TestCase):
         pass
 
     def test_logdens(self):
-        pass
+
+        loglik = 0.0
+        for leaf in self.tree.value.terminalNodes:
+
+            for i in xrange(leaf.npts):
+                # compute convolution manually
+
 
 if __name__ == "__main__":
     unittest.main()
