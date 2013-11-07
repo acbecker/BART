@@ -315,7 +315,7 @@ class BaseTree(object):
 
         # Set the node values
         node.ybar = np.mean(self.y[includeY])
-        node.yvar = np.std(self.y[includeY])**2
+        node.yvar = np.var(self.y[includeY])
         node.npts = np.sum(includeY)
 
         return includeX, includeY  # TODO: do we really need to return includeX?
@@ -412,17 +412,18 @@ class BartTreeParameter(steps.Parameter):
 
             npts = node.npts
             if npts == 0:
-                # Damn, this should not happen.
-                # DEBUG ME
+                # empty nodes do not contribute to the log-likelihood
                 continue
 
             ymean = node.ybar
+            yvar = node.yvar
 
             # log-likelihood component after marginalizing over the mean value in each node, a gaussian distribution
             post_var = self.prior_mu_var + self.sigsqr.value / npts
             zsqr = (ymean - self.mubar) ** 2 / post_var
 
-            lnlike += -0.5 * np.log(self.sigsqr.value / npts) - 0.5 * zsqr
+            lnlike += -(npts - 1.0) / 2.0 * np.log(2.0 * np.pi * self.sigsqr.value) - 0.5 * np.log(npts) - \
+                0.5 * np.log(2.0 * np.pi * post_var) - 0.5 * zsqr - 0.5 * npts * yvar / self.sigsqr.value
 
         return lnlike
 
