@@ -315,7 +315,7 @@ class BaseTree(object):
 
         # Set the node values
         node.ybar = np.mean(self.y[includeY])
-        node.yvar = np.std(self.y[includeY])**2
+        node.yvar = np.var(self.y[includeY])
         node.npts = np.sum(includeY)
 
         return includeX, includeY  # TODO: do we really need to return includeX?
