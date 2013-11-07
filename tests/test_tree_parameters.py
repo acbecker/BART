@@ -242,7 +242,7 @@ class TreeTestCase(unittest.TestCase):
             in_node = self.tree.value.filter(leaf)[1]  # find the data that end up in this node
             lik = 1.0
             for i in xrange(leaf.npts):
-                lik *= stats.distributions.norm(self.y[in_node[i]], np.sqrt(self.true_sigsqr)).pdf(mugrid)
+                lik *= stats.distributions.norm(self.y[in_node][i], np.sqrt(self.true_sigsqr)).pdf(mugrid)
             # add in prior contribution
             lik *= stats.distributions.norm(self.mu.mubar, np.sqrt(self.mu.prior_var)).pdf(mugrid)
             loglik_direct += np.log(integrate.simps(lik, mugrid))
