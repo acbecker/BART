@@ -451,7 +451,7 @@ class BartMeanParameter(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.tree = None  # the instance of BaseTree class corresponding to this mean parameter instance
+        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
     def set_starting_value(self, tree):
@@ -471,9 +471,9 @@ class BartMeanParameter(steps.Parameter):
         Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
         current tree configuration, variance (sigma ** 2), and data.
         """
-        mu = np.empty(len(self.tree.terminalNodes))
+        mu = np.empty(len(self.tree.value.terminalNodes))
         n_idx = 0
-        for node in self.tree.terminalNodes:
+        for node in self.tree.value.terminalNodes:
             if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
@@ -646,6 +646,12 @@ class BartStep(object):
         @param report_iter: Print out a report on the Metropolis-Hastings acceptance rates after this many iterations.
         """
         self.y = y
+        self.m = len(trees)
+        try:
+            self.m == len(mus)
+        except ValueError:
+            "Length of tree list must equal length of node means list."
+
         self.resids = y
         self.trees = trees
         self.mus = mus
@@ -709,9 +715,10 @@ class BartStep(object):
         Update of the configurations and mean parameters of the terminal nodes of each tree in the ensemble. Note that
         this is done in place.
         """
-        node_mus = np.zeros((self.n_samples, self.m))
+        n_samples = len(self.y)
+        node_mus = np.zeros((n_samples, self.m))
         for m in range(self.m):
-            node_mus[:, m] = self.node_mu(self.trees[m], self.mus[m])
+            node_mus[:, m] = self.node_mu(self.trees[m].value, self.mus[m])
 
         # predicted y is a sum of trees
         treesum = np.sum(node_mus, axis=1)
@@ -729,7 +736,7 @@ class BartStep(object):
             self.mus[m].value = self.mus[m].random_posterior()
 
             # Updated tree sum
-            pred = self.node_mu(self.trees[m], self.mus[m])
+            pred = self.node_mu(self.trees[m].value, self.mus[m])
             treesum += (pred - node_mus[:, m])
 
             # Make sure the node_mus matrix is updated along with the tree
