@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from test_tree_parameters import build_test_data, SimpleBartStep
 
 
-class ProposalTestCase(unittest.TestCase):
+class StepTestCase(unittest.TestCase):
     def setUp(self):
         nsamples = 1000
         nfeatures = 4
@@ -22,6 +22,7 @@ class ProposalTestCase(unittest.TestCase):
         self.mtrees = 1  # single tree model
         self.mu = BartMeanParameter("mu", 1)
         self.mu.tree = tree
+        self.mu.value = mu
         # Rescale y to lie between -0.5 and 0.5
         self.true_mu -= self.y.min()
         self.y -= self.y.min()  # minimum = 0
@@ -54,7 +55,13 @@ class ProposalTestCase(unittest.TestCase):
         del self.tree
 
     def test_node_mu(self):
-        pass
+        mu_map = BartStep.node_mu(self.tree.value, self.mu)
+        n_idx = 0
+        for leaf in self.tree.value.terminalNodes:
+            in_node = self.tree.value.filter(leaf)[1]
+            for i in xrange(sum(in_node)):
+                self.assertAlmostEquals(mu_map[in_node][i], self.mu.value[n_idx])
+            n_idx += 1
 
     def test_do_step(self):
         pass
