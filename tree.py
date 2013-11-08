@@ -611,28 +611,24 @@ class BartProposal(proposals.Proposal):
         beta = self.beta
         depth = self._node.depth
         log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 - alpha / (1.0 + depth) ** beta) + \
-            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta) - np.log(proposed_tree.n_features) - \
-            np.log(self._node.npts)
-
+            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
         self.log_prior_ratio = log_prior_ratio
 
         # get log ratio of transition kernels
         if self._operation == 'grow':
             ntnodes = float(len(current_tree.terminalNodes))
             ntparents = len(proposed_tree.get_terminal_parents())
-            logdensity = np.log(ntnodes / ntparents) + np.log(proposed_tree.n_features) + np.log(self._node.npts) + \
-                log_prior_ratio
+            logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
         elif self._operation == 'prune':
             ntnodes = float(len(proposed_tree.terminalNodes))
             ntparents = len(current_tree.get_terminal_parents())
-            logdensity = np.log(ntparents / ntnodes) - np.log(proposed_tree.n_features) - np.log(self._node.npts) - \
-                log_prior_ratio
+            logdensity = np.log(ntparents / ntnodes) - log_prior_ratio
         else:
             self._prohibited_proposal = True
             print 'Unknown proposal move.'
             return 0.0
 
-        return logdensity
+        return -logdensity  # make sure sign agrees with expectation from MetroStep.accept()
 
 
 class BartStep(object):

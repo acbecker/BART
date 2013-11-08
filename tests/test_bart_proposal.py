@@ -10,7 +10,7 @@ from test_tree_parameters import build_test_data, SimpleBartStep
 
 class ProposalTestCase(unittest.TestCase):
     def setUp(self):
-        nsamples = 5000
+        nsamples = 500
         nfeatures = 4
         self.alpha = 0.95
         self.beta = 2.0
@@ -80,6 +80,7 @@ class ProposalTestCase(unittest.TestCase):
         for i in xrange(ntrials):
             new_tree = self.tree_proposal.draw(current_tree)
             logratio = self.tree_proposal.logdensity(new_tree, current_tree, True)
+            logratio = -logratio  # sign of output agrees with MetroStep.accept, reverse for convention of this test
             nleafs_new = len(new_tree.terminalNodes)
             nleafs_old = len(current_tree.terminalNodes)
 
@@ -108,15 +109,17 @@ class ProposalTestCase(unittest.TestCase):
     def test_mcmc(self):
         # run a simple MCMC sampler for the tree configuration to make sure that we correctly constrain the number of
         # internal and terminal nodes
-        burnin = 5000
-        niter = 20000
+        burnin = 1000
+        niter = 5000
         true_nleaves = len(self.tree.value.terminalNodes)
         true_ninodes = len(self.tree.value.internalNodes)
-        metro_step = steps.MetroStep(self.tree, self.tree_proposal, burnin)
+        metro_step = steps.MetroStep(self.tree, self.tree_proposal, niter)
         nleaves = np.zeros(niter)
         ninodes = np.zeros(niter)
 
         naccepted = 0
+        naccept_grow = 0
+        naccept_prune = 0
         print 'Doing burnin...'
         for i in xrange(burnin):
             # burnin phase
@@ -127,8 +130,12 @@ class ProposalTestCase(unittest.TestCase):
             metro_step.do_step()
             new_nleaves = len(self.tree.value.terminalNodes)
             new_nbranches = len(self.tree.value.internalNodes)
-            accepted = naccepted < metro_step.naccept
+            accepted = (metro_step.naccept - naccepted) == 1
             if accepted:
+                if self.tree_proposal._operation == 'grow':
+                    naccept_grow += 1
+                elif self.tree_proposal._operation == 'prune':
+                    naccept_prune += 1
                 if not self.tree_proposal._prohibited_proposal:
                     # make sure the tree configuration has changed
                     self.assertNotEqual(old_nleaves, new_nleaves)
@@ -151,6 +158,9 @@ class ProposalTestCase(unittest.TestCase):
             metro_step.do_step()
             nleaves[i] = len(self.tree.value.terminalNodes)
             ninodes[i] = len(self.tree.value.internalNodes)
+
+        print 'Number of accepted grow proposals:', naccept_grow
+        print 'Number of accepted prune proposals:', naccept_prune
 
         plt.plot(nleaves, '.')
         plt.plot(ninodes, 'r.')
