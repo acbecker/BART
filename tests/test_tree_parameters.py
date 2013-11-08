@@ -7,28 +7,48 @@ from tree import *
 import matplotlib.pyplot as plt
 
 
-# generate test data from a single tree
-def build_test_data(X, sigsqr, ngrow=5):
-    ytemp = np.random.standard_normal(X.shape[0])
-    tree = BaseTree(X, ytemp, min_samples_leaf=1)
-    for i in xrange(ngrow):
-        tree.grow()
+# generate test data from an ensemble of trees
+def build_test_data(X, sigsqr, ngrow=5, mtrees=1):
+    if np.isscalar(ngrow):
+        ngrow = [ngrow] * mtrees
 
-    mu = np.random.normal(2.0, 1.3, len(tree.terminalNodes))
-    n_idx = 0
-    y = np.zeros(len(ytemp))
-    for leaf in tree.terminalNodes:
-        y_in_node = tree.filter(leaf)[1]
-        y[y_in_node] = mu[n_idx] + np.sqrt(sigsqr) * np.random.standard_normal(leaf.npts)
+    ytemp = np.random.standard_normal(X.shape[0])
+    forest = []
+    mu_list = []
+    mu_map = np.zeros(X.shape[0])
+
+    for m in xrange(mtrees):
+        tree = BaseTree(X, ytemp, min_samples_leaf=1)
+        for i in xrange(ngrow[m]):
+            tree.grow()
+
+        mu = np.random.normal(2.0, 1.3, len(tree.terminalNodes))
+
+        forest.append(tree)
+        mu_list.append(mu)
+
+        n_idx = 0
+        this_mu_map = np.zeros(mu_map.size)
+        for leaf in tree.terminalNodes:
+            y_in_node = tree.filter(leaf)[1]
+            this_mu_map[y_in_node] = mu[n_idx]
+        mu_map += this_mu_map
+
         n_idx += 1
 
-    tree.y = y
+    y = mu_map + np.sqrt(sigsqr) * np.random.standard_normal(X.shape[0])
 
-    # rerun filter to update the y-means and variances in each terminal node
-    for leaf in tree.terminalNodes:
-        x_in_node, y_in_node = tree.filter(leaf)
+    for tree in forest:
+        tree.y = y
+        # rerun filter to update the y-means and variances in each terminal node
+        for leaf in tree.terminalNodes:
+            x_in_node, y_in_node = tree.filter(leaf)
 
-    return tree, mu
+    if mtrees == 1:
+        forest = forest[0]
+        mu_list = mu_list[0]
+
+    return forest, mu_list
 
 
 class SimpleBartStep(object):

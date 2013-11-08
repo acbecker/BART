@@ -768,12 +768,10 @@ class BartModel(samplers.Sampler):
         self.alpha = alpha
         self.beta = beta
 
-        # store original y range so we can transform back when making predictions
-        self.ymin = self.y.min()
-        self.ymax = self.y.max()
-
         # Rescale y to lie between -0.5 and 0.5
+        self.ymin = self.y.min()  # store values so we can transform back when making predictions
         self.y -= self.ymin  # minimum = 0
+        self.ymax = self.y.max()
         self.y /= self.ymax  # maximum = 1
         self.y -= 0.5        # range is -0.5 to 0.5
 
@@ -855,7 +853,7 @@ class BartSample(object):
         self.n_samples = X.shape[0]
 
         self.ymin = self.ytrain.min()  # needed for translating the BART output to the original data scale
-        self.ymax = self.ytrain.max()
+        self.ymax = (self.ytrain - self.ymin).max()
 
         # dictionary containing the values of the prior hyperparameters
         self.prior_info = prior_info

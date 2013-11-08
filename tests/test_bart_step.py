@@ -16,43 +16,57 @@ class StepTestCase(unittest.TestCase):
         self.beta = 2.0
         self.X = np.random.standard_cauchy((nsamples, nfeatures))
         self.true_sigsqr = 0.7 ** 2
-        tree, mu = build_test_data(self.X, self.true_sigsqr)
-        self.true_mu = mu
-        self.y = tree.y
-        self.mtrees = 1  # single tree model
-        self.mu = BartMeanParameter("mu", 1)
-        self.mu.tree = tree
-        self.mu.value = mu
+
+        ngrow_list = [4, 7]
+        self.mtrees = 2
+        forest, mu_list = build_test_data(self.X, self.true_sigsqr, ngrow_list, self.mtrees)
+
+        self.y = forest[0].tree.y
         # Rescale y to lie between -0.5 and 0.5
-        self.true_mu -= self.y.min()
-        self.y -= self.y.min()  # minimum = 0
-        self.true_mu /= self.y.max()
-        self.true_sigsqr /= self.y.max() ** 2
-        self.y /= self.y.max()  # maximum = 1
-        self.true_mu -= 0.5
+        self.ymin = self.y.min()
+        self.y -= self.ymin  # minimum = 0
+        self.ymax = self.y.max()
+        self.true_sigsqr /= self.ymax ** 2
+        self.y /= self.ymax  # maximum = 1
         self.y -= 0.5  # range is -0.5 to 0.5
 
-        # Tree parameter object, note that this is different from a BaseTree object
-        self.tree = BartTreeParameter('tree', self.X, self.y, self.mtrees, self.alpha, self.beta,
-                                      self.mu.mubar, self.mu.prior_var)
-        self.tree.value = tree
+        self.mu_list = []
+        self.forest = []
+        idx = 1
+        for tree, mu in zip(forest, mu_list):
+            # rescale mu values since we rescaled the y values
+            mu -= self.ymin
+            mu /= self.ymax
+            mu -= 0.5
+            mean_param = BartMeanParameter("mu " + str(idx), self.mtrees)
+            mean_param.tree = tree  # this tree configuration
+            mean_param.value = mu
+            self.mu_list.append(mean_param)
 
-        # update moments of y-values in each terminal node since we transformed the data
-        for leaf in self.tree.value.terminalNodes:
-            self.tree.value.filter(leaf)
+            # Tree parameter object, note that this is different from a BaseTree object
+            tree_param = BartTreeParameter('tree ' + str(idx), self.X, self.y, self.mtrees, self.alpha, self.beta,
+                                          mean_param.mubar, mean_param.prior_var)
+            tree_param.value = tree
+
+            # update moments of y-values in each terminal node since we transformed the data
+            for leaf in tree_param.value.terminalNodes:
+                tree_param.value.filter(leaf)
+
+            self.forest.append(tree_param)
 
         self.mu.sigsqr = BartVariance(self.X, self.y)
-        self.mu.sigsqr.bart_step = SimpleBartStep()
         self.mu.sigsqr.value = self.true_sigsqr
         self.tree.sigsqr = self.mu.sigsqr
 
-        self.tree_proposal = BartProposal()
+        self.bart_step = BartStep(self.y, self.forest, self.mu_list, report_iter=5000)
+        self.mu.sigsqr.bart_step = self.bart_step
 
     def tearDown(self):
         del self.X
         del self.y
-        del self.mu
-        del self.tree
+        del self.mu_list
+        del self.forest
+        del self.bart_step
 
     def test_node_mu(self):
         mu_map = BartStep.node_mu(self.tree.value, self.mu)
@@ -64,4 +78,11 @@ class StepTestCase(unittest.TestCase):
             n_idx += 1
 
     def test_do_step(self):
+        # Tests:
+        # 1) Make sure that the y-values are updated, i.e., tree.y != resids
+        # 2) Make sure that the true mu(x) values are contained within the 95% credibility interval 95% of the time
+        # 3) Make sure that the standard deviation in the residuals agrees with the true value of the variance parameter
+        # 4) Make sure that the number of internal and external nodes agree with the true values at the 95% level.
+        #
+        # Tests 2-4 are carried out using an MCMC sampler that keeps the Variance parameter fixed.
         pass
