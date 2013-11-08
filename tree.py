@@ -387,11 +387,10 @@ class BartTreeParameter(steps.Parameter):
             logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
 
             # get number of features and data points that are available for the splitting rule
-            fxl, fyl = tree.filter(node)
-            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
-            npts = np.sum(fyl)
-            # probability of split is discrete uniform over set of available features and data points
-            logprior += -np.log(nfeatures) - np.log(npts)
+            logprior += -np.log(self.value.n_features) - np.log(node.npts)
+            if node.npts < 2:
+                # should never happen
+                logprior = -1e600
 
         return logprior
 
@@ -553,13 +552,16 @@ class BartVariance(steps.Parameter):
 
 
 class BartProposal(proposals.Proposal):
-    def __init__(self):
+    def __init__(self, alpha=0.95, beta=2.0):
         """
         Constructor for object that generates proposed tree configurations, given the current one.
         """
+        self.alpha = alpha
+        self.beta = beta
         self.pgrow = 0.5  # probability of growing the tree instead of pruning the tree.
         self._operation = None  # Last tree operations performed (Grow/Prune)
         self._node = None  # Last node operated on
+        self.log_prior_ratio = 0.0
 
     def draw(self, current_tree):
         """
@@ -597,24 +599,31 @@ class BartProposal(proposals.Proposal):
             return 0.0
         # Compute ratio of prior distributions for the two trees. Do this here instead of in the Tree parameter object
         # because many of the factors cancel in the Metropolis-Hastings ratio for this type of proposal.
-        alpha = current_tree.alpha
-        beta = current_tree.beta
-        depth = self._node.depth
-        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 + alpha / (1.0 + depth) ** beta) + \
-            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
 
-        # get log ratio of transition kernels
         if self._node is None or self._node.feature is None:
             # tree configuration is unchanged since we could not perform the chosen move
             return 0.0
-        elif self._operation == 'grow':
-            ntnodes = len(current_tree.terminalNodes)
+
+        alpha = self.alpha
+        beta = self.beta
+        depth = self._node.depth
+        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 - alpha / (1.0 + depth) ** beta) + \
+            2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta) - np.log(proposed_tree.n_features) - \
+            np.log(self._node.npts)
+
+        self.log_prior_ratio = log_prior_ratio
+
+        # get log ratio of transition kernels
+        if self._operation == 'grow':
+            ntnodes = float(len(current_tree.terminalNodes))
             ntparents = len(proposed_tree.get_terminal_parents())
-            logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
+            logdensity = np.log(ntnodes / ntparents) + np.log(proposed_tree.n_features) + np.log(self._node.npts) + \
+                log_prior_ratio
         elif self._operation == 'prune':
-            ntnodes = len(proposed_tree.terminalNodes)
+            ntnodes = float(len(proposed_tree.terminalNodes))
             ntparents = len(current_tree.get_terminal_parents())
-            logdensity = np.log(ntparents) - log_prior_ratio
+            logdensity = np.log(ntparents / ntnodes) - np.log(proposed_tree.n_features) - np.log(self._node.npts) - \
+                log_prior_ratio
         else:
             print 'Unknown proposal move.'
             return 0.0

@@ -54,6 +54,7 @@ class ProposalTestCase(unittest.TestCase):
         del self.tree
 
     def test_draw(self):
+        # make sure grow/prune operations return a tree with correct # of terminal nodes
         current_tree = self.tree.value
         ntrials = 1000
         for i in xrange(ntrials):
@@ -61,7 +62,7 @@ class ProposalTestCase(unittest.TestCase):
             nleafs_new = len(new_tree.terminalNodes)
             nleafs_old = len(current_tree.terminalNodes)
             if self.tree_proposal._node is None or self.tree_proposal._node.feature is None:
-                # tree configuration is not updated
+                # make sure tree configuration is not updated
                 self.assertEqual(nleafs_new, nleafs_old)
             elif self.tree_proposal._operation == 'grow':
                 # make sure there is one more terminal node
@@ -73,7 +74,41 @@ class ProposalTestCase(unittest.TestCase):
             current_tree = new_tree
 
     def test_logdensity(self):
-        pass
+        # make sure ratio of transition kernels matches the values computed directly
+        current_tree = self.tree.value
+        ntrials = 1000
+        for i in xrange(ntrials):
+            new_tree = self.tree_proposal.draw(current_tree)
+            logratio = self.tree_proposal.logdensity(new_tree, current_tree, True)
+            nleafs_new = len(new_tree.terminalNodes)
+            nleafs_old = len(current_tree.terminalNodes)
+
+            if self.tree_proposal._node is None or self.tree_proposal._node.feature is None:
+                # tree configuration is not updated
+                self.assertAlmostEqual(logratio, 0.0)
+                continue
+
+            elif self.tree_proposal._operation == 'grow':
+                log_forward = -np.log(nleafs_old) - np.log(current_tree.n_features) - \
+                              np.log(self.tree_proposal._node.npts)
+                # reverse is the prune update
+                log_backward = -np.log(len(new_tree.get_terminal_parents()))
+
+            else:
+                log_forward = -np.log(len(current_tree.get_terminal_parents()))
+                # reverse mode is grow update
+                log_backward = -np.log(nleafs_new) - np.log(new_tree.n_features) - np.log(self.tree_proposal._node.npts)
+
+            logratio_direct = self.tree.logprior(new_tree) - log_forward - \
+                (self.tree.logprior(current_tree) - log_backward)
+            self.assertAlmostEqual(logratio, logratio_direct)
+
+            current_tree = new_tree
+
+    def test_mcmc(self):
+        # run a simple MCMC sampler for the tree configuration to make sure that we correctly constrain the number of
+        # internal and terminal nodes
+        
 
 
 if __name__ == "__main__":
