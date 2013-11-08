@@ -29,6 +29,8 @@ class StepTestCase(unittest.TestCase):
         self.true_sigsqr /= self.ymax ** 2
         self.y /= self.ymax  # maximum = 1
         self.y -= 0.5  # range is -0.5 to 0.5
+        for tree in forest:
+            tree.y = self.y  # make sure tree objects have the transformed data
 
         self.sigsqr = BartVariance(self.X, self.y)
         self.sigsqr.value = self.true_sigsqr
@@ -36,29 +38,30 @@ class StepTestCase(unittest.TestCase):
         self.mu_list = []
         self.forest = []
         self.mu_map = np.zeros(len(self.y))
-        idx = 1
+        id = 1
         for tree, mu in zip(forest, mu_list):
             # rescale mu values since we rescaled the y values
             mu -= self.ymin
             mu /= self.ymax
             mu -= 0.5
-            mean_param = BartMeanParameter("mu " + str(idx), self.mtrees)
-            mean_param.tree = tree  # this tree configuration
+            mean_param = BartMeanParameter("mu " + str(id), self.mtrees)
             mean_param.value = mu
             mean_param.sigsqr = self.sigsqr
-            self.mu_list.append(mean_param)
 
             # Tree parameter object, note that this is different from a BaseTree object
-            tree_param = BartTreeParameter('tree ' + str(idx), self.X, self.y, self.mtrees, self.alpha, self.beta,
+            tree_param = BartTreeParameter('tree ' + str(id), self.X, self.y, self.mtrees, self.alpha, self.beta,
                                           mean_param.mubar, mean_param.prior_var)
             tree_param.value = tree
+            mean_param.tree = tree_param  # this tree parameter, mu needs to know about it for the Gibbs sampler
             tree_param.sigsqr = self.sigsqr
 
             # update moments of y-values in each terminal node since we transformed the data
             for leaf in tree_param.value.terminalNodes:
                 tree_param.value.filter(leaf)
 
+            self.mu_list.append(mean_param)
             self.forest.append(tree_param)
+
             self.mu_map += BartStep.node_mu(tree, mean_param)
 
         self.bart_step = BartStep(self.y, self.forest, self.mu_list, report_iter=5000)
