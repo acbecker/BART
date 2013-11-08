@@ -562,6 +562,7 @@ class BartProposal(proposals.Proposal):
         self._operation = None  # Last tree operations performed (Grow/Prune)
         self._node = None  # Last node operated on
         self.log_prior_ratio = 0.0
+        self._prohibited_proposal = False
 
     def draw(self, current_tree):
         """
@@ -602,8 +603,10 @@ class BartProposal(proposals.Proposal):
 
         if self._node is None or self._node.feature is None:
             # tree configuration is unchanged since we could not perform the chosen move
+            self._prohibited_proposal = True
             return 0.0
 
+        self._prohibited_proposal = False
         alpha = self.alpha
         beta = self.beta
         depth = self._node.depth
@@ -625,6 +628,7 @@ class BartProposal(proposals.Proposal):
             logdensity = np.log(ntparents / ntnodes) - np.log(proposed_tree.n_features) - np.log(self._node.npts) - \
                 log_prior_ratio
         else:
+            self._prohibited_proposal = True
             print 'Unknown proposal move.'
             return 0.0
 
@@ -734,6 +738,8 @@ class BartStep(object):
 
             # Make sure the node_mus matrix is updated along with the tree
             node_mus[:, m] = pred
+
+            self.trees[m].y = self.y  # restore original y-values
 
         self.resids = self.y - treesum  # save residuals for use by variance parameter object
 

@@ -108,7 +108,61 @@ class ProposalTestCase(unittest.TestCase):
     def test_mcmc(self):
         # run a simple MCMC sampler for the tree configuration to make sure that we correctly constrain the number of
         # internal and terminal nodes
-        
+        burnin = 5000
+        niter = 20000
+        true_nleaves = len(self.tree.value.terminalNodes)
+        true_ninodes = len(self.tree.value.internalNodes)
+        metro_step = steps.MetroStep(self.tree, self.tree_proposal, burnin)
+        nleaves = np.zeros(niter)
+        ninodes = np.zeros(niter)
+
+        naccepted = 0
+        print 'Doing burnin...'
+        for i in xrange(burnin):
+            # burnin phase
+            if i % 100 == 0:
+                print i, '...'
+            old_nleaves = len(self.tree.value.terminalNodes)
+            old_nbranches = len(self.tree.value.internalNodes)
+            metro_step.do_step()
+            new_nleaves = len(self.tree.value.terminalNodes)
+            new_nbranches = len(self.tree.value.internalNodes)
+            accepted = naccepted < metro_step.naccept
+            if accepted:
+                if not self.tree_proposal._prohibited_proposal:
+                    # make sure the tree configuration has changed
+                    self.assertNotEqual(old_nleaves, new_nleaves)
+                    self.assertNotEqual(old_nbranches, new_nbranches)
+                else:
+                    # proposal results in prohibited tree structure, so structure is unchanged
+                    self.assertEqual(old_nbranches, new_nbranches)
+                    self.assertEqual(old_nleaves, new_nleaves)
+                naccepted += 1
+            else:
+                # proposal rejected, make sure tree is not updated
+                self.assertEqual(old_nleaves, new_nleaves)
+                self.assertEqual(old_nbranches, new_nbranches)
+
+        print 'Sampling tree structures...'
+        for i in xrange(niter):
+            if i % 100 == 0:
+                print i, '...'
+            # now save the number of nodes sampled from their posterior
+            metro_step.do_step()
+            nleaves[i] = len(self.tree.value.terminalNodes)
+            ninodes[i] = len(self.tree.value.internalNodes)
+
+        plt.plot(nleaves, '.')
+        plt.plot(ninodes, 'r.')
+        plt.ylabel('Number of nodes')
+        plt.show()
+
+        ntrue = np.sum(ninodes[nleaves == true_nleaves] == true_ninodes)
+        ntrue_fraction = ntrue / float(niter)
+
+        # posterior probability of correct number of internal and terminal nodes should be at least 5%
+        print ntrue_fraction
+        self.assertGreater(ntrue_fraction, 0.05)
 
 
 if __name__ == "__main__":
