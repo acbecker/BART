@@ -387,11 +387,10 @@ class BartTreeParameter(steps.Parameter):
             logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
 
             # get number of features and data points that are available for the splitting rule
-            fxl, fyl = tree.filter(node)
-            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
-            npts = np.sum(fyl)
-            # probability of split is discrete uniform over set of available features and data points
-            logprior += -np.log(nfeatures) - np.log(npts)
+            logprior += -np.log(self.value.n_features) - np.log(node.npts)
+            if node.npts < 2:
+                # should never happen
+                logprior = -1e600
 
         return logprior
 
@@ -452,7 +451,7 @@ class BartMeanParameter(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.tree = None  # the instance of BaseTree class corresponding to this mean parameter instance
+        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
     def set_starting_value(self, tree):
@@ -472,9 +471,9 @@ class BartMeanParameter(steps.Parameter):
         Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
         current tree configuration, variance (sigma ** 2), and data.
         """
-        mu = np.empty(len(self.tree.terminalNodes))
+        mu = np.empty(len(self.tree.value.terminalNodes))
         n_idx = 0
-        for node in self.tree.terminalNodes:
+        for node in self.tree.value.terminalNodes:
             if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
@@ -553,13 +552,17 @@ class BartVariance(steps.Parameter):
 
 
 class BartProposal(proposals.Proposal):
-    def __init__(self):
+    def __init__(self, alpha=0.95, beta=2.0):
         """
         Constructor for object that generates proposed tree configurations, given the current one.
         """
+        self.alpha = alpha
+        self.beta = beta
         self.pgrow = 0.5  # probability of growing the tree instead of pruning the tree.
         self._operation = None  # Last tree operations performed (Grow/Prune)
         self._node = None  # Last node operated on
+        self.log_prior_ratio = 0.0
+        self._prohibited_proposal = False
 
     def draw(self, current_tree):
         """
@@ -597,26 +600,35 @@ class BartProposal(proposals.Proposal):
             return 0.0
         # Compute ratio of prior distributions for the two trees. Do this here instead of in the Tree parameter object
         # because many of the factors cancel in the Metropolis-Hastings ratio for this type of proposal.
-        alpha = current_tree.alpha
-        beta = current_tree.beta
+
+        if self._node is None or self._node.feature is None:
+            # tree configuration is unchanged since we could not perform the chosen move
+            self._prohibited_proposal = True
+            return 0.0
+
+        self._prohibited_proposal = False
+        alpha = self.alpha
+        beta = self.beta
         depth = self._node.depth
-        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 + alpha / (1.0 + depth) ** beta) + \
+        log_prior_ratio = np.log(alpha) - beta * np.log(1.0 + depth) - np.log(1.0 - alpha / (1.0 + depth) ** beta) + \
             2.0 * np.log(1.0 - alpha / (2.0 + depth) ** beta)
+        self.log_prior_ratio = log_prior_ratio
 
         # get log ratio of transition kernels
         if self._operation == 'grow':
-            ntnodes = len(current_tree.terminalNodes)
+            ntnodes = float(len(current_tree.terminalNodes))
             ntparents = len(proposed_tree.get_terminal_parents())
             logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
         elif self._operation == 'prune':
-            ntnodes = len(proposed_tree.terminalNodes)
+            ntnodes = float(len(proposed_tree.terminalNodes))
             ntparents = len(current_tree.get_terminal_parents())
-            logdensity = np.log(ntparents) - log_prior_ratio
+            logdensity = np.log(ntparents / ntnodes) - log_prior_ratio
         else:
+            self._prohibited_proposal = True
             print 'Unknown proposal move.'
             return 0.0
 
-        return logdensity
+        return -logdensity  # make sure sign agrees with expectation from MetroStep.accept()
 
 
 class BartStep(object):
@@ -628,12 +640,18 @@ class BartStep(object):
         a Metropolis-Hastings step, and then the mean values in each terminal node are updated using a Gibbs step.
 
         @param y: The array of response values, an n_samples size array.
-        @param trees: The list of tree configurations, instances of the BaseTree class.
+        @param trees: The list of tree parameters, instances of BartTreeParameter class..
         @param mus: The list of mean values for the terminal nodes of each tree, instances of the BartMeanParameter
             class.
         @param report_iter: Print out a report on the Metropolis-Hastings acceptance rates after this many iterations.
         """
         self.y = y
+        self.m = len(trees)
+        try:
+            self.m == len(mus)
+        except ValueError:
+            "Length of tree list must equal length of node means list."
+
         self.resids = y
         self.trees = trees
         self.mus = mus
@@ -697,9 +715,10 @@ class BartStep(object):
         Update of the configurations and mean parameters of the terminal nodes of each tree in the ensemble. Note that
         this is done in place.
         """
-        node_mus = np.zeros((self.n_samples, self.m))
+        n_samples = len(self.y)
+        node_mus = np.zeros((n_samples, self.m))
         for m in range(self.m):
-            node_mus[:, m] = self.node_mu(self.trees[m], self.mus[m])
+            node_mus[:, m] = self.node_mu(self.trees[m].value, self.mus[m])
 
         # predicted y is a sum of trees
         treesum = np.sum(node_mus, axis=1)
@@ -709,6 +728,11 @@ class BartStep(object):
 
             # make leave-one-out resids the new response for the left-out tree
             self.trees[m].y = resids
+            self.trees[m].value.y = resids
+
+            # need to update ybar, yvar values for terminal nodes
+            for leaf in self.trees[m].value.terminalNodes:
+                in_node = self.trees[m].value.filter(leaf)[1]
 
             # First update the tree configuration using a Metropolis-Hastings step
             self.tree_steps[m].do_step()
@@ -717,11 +741,14 @@ class BartStep(object):
             self.mus[m].value = self.mus[m].random_posterior()
 
             # Updated tree sum
-            pred = self.node_mu(self.trees[m], self.mus[m])
+            pred = self.node_mu(self.trees[m].value, self.mus[m])
             treesum += (pred - node_mus[:, m])
 
             # Make sure the node_mus matrix is updated along with the tree
             node_mus[:, m] = pred
+
+            self.trees[m].y = self.y  # restore original y-values
+            self.trees[m].value.y = self.y
 
         self.resids = self.y - treesum  # save residuals for use by variance parameter object
 
@@ -754,12 +781,10 @@ class BartModel(samplers.Sampler):
         self.alpha = alpha
         self.beta = beta
 
-        # store original y range so we can transform back when making predictions
-        self.ymin = self.y.min()
-        self.ymax = self.y.max()
-
         # Rescale y to lie between -0.5 and 0.5
+        self.ymin = self.y.min()  # store values so we can transform back when making predictions
         self.y -= self.ymin  # minimum = 0
+        self.ymax = self.y.max()
         self.y /= self.ymax  # maximum = 1
         self.y -= 0.5        # range is -0.5 to 0.5
 
@@ -841,7 +866,7 @@ class BartSample(object):
         self.n_samples = X.shape[0]
 
         self.ymin = self.ytrain.min()  # needed for translating the BART output to the original data scale
-        self.ymax = self.ytrain.max()
+        self.ymax = (self.ytrain - self.ymin).max()
 
         # dictionary containing the values of the prior hyperparameters
         self.prior_info = prior_info
