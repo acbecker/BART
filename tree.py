@@ -640,7 +640,7 @@ class BartStep(object):
         a Metropolis-Hastings step, and then the mean values in each terminal node are updated using a Gibbs step.
 
         @param y: The array of response values, an n_samples size array.
-        @param trees: The list of tree configurations, instances of the BaseTree class.
+        @param trees: The list of tree parameters, instances of BartTreeParameter class..
         @param mus: The list of mean values for the terminal nodes of each tree, instances of the BartMeanParameter
             class.
         @param report_iter: Print out a report on the Metropolis-Hastings acceptance rates after this many iterations.
@@ -728,6 +728,11 @@ class BartStep(object):
 
             # make leave-one-out resids the new response for the left-out tree
             self.trees[m].y = resids
+            self.trees[m].value.y = resids
+
+            # need to update ybar, yvar values for terminal nodes
+            for leaf in self.trees[m].value.terminalNodes:
+                in_node = self.trees[m].value.filter(leaf)[1]
 
             # First update the tree configuration using a Metropolis-Hastings step
             self.tree_steps[m].do_step()
@@ -743,6 +748,7 @@ class BartStep(object):
             node_mus[:, m] = pred
 
             self.trees[m].y = self.y  # restore original y-values
+            self.trees[m].value.y = self.y
 
         self.resids = self.y - treesum  # save residuals for use by variance parameter object
 

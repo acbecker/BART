@@ -35,8 +35,6 @@ def build_test_data(X, sigsqr, ngrow=5, mtrees=1):
             n_idx += 1
         mu_map += this_mu_map
 
-        n_idx += 1
-
     y = mu_map + np.sqrt(sigsqr) * np.random.standard_normal(X.shape[0])
 
     for tree in forest:
