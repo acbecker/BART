@@ -73,7 +73,19 @@ class SamplerTestCase(unittest.TestCase):
             self.assertEqual(len(self.model.mcmc_samples.samples[mu.name]), 0)
 
     def test_savevalues(self):
-        pass
+        self.model.start()
+        self.model.save_values()
+        mcmc_samples = self.model.mcmc_samples
+
+        # make sure saved the values in the dictionary of MCMC samples
+        self.assertEqual(len(mcmc_samples.samples[self.model.sigsqr.name]), 1)
+        self.assertTrue(mcmc_samples.samples[self.model.sigsqr.name][0] == self.model.sigsqr.value)
+        for tree in self.model.trees:
+            self.assertEqual(len(mcmc_samples.samples[tree.name]), 1)
+            self.assertTrue(mcmc_samples.samples[tree.name][0] == tree.value)
+        for mu in self.model.mus:
+            self.assertEqual(len(mcmc_samples.samples[mu.name]), 1)
+            self.assertTrue(np.all(mcmc_samples.samples[mu.name][0] == mu.value))
 
     def test_predict(self):
         pass
