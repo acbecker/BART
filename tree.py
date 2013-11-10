@@ -299,7 +299,6 @@ class BaseTree(object):
 
         return includeX
 
-
     def filter(self, node):
         """
         Find the data points that end up in the input node by dropping them down the tree, and save the first and
@@ -319,7 +318,6 @@ class BaseTree(object):
         node.npts = np.sum(includeY)
 
         return includeX, includeY  # TODO: do we really need to return includeX?
-
 
 
 class BartTreeParameter(steps.Parameter):
@@ -686,30 +684,6 @@ class BartStep(object):
 
         return mu_map
 
-    def predict(self, data):
-        # TODO: Should move this to the BartSample class.
-        """
-        Predict the value of the response given the input data.
-
-        @param data: The array of predictors. Must have the same number of features (columns) as the training data.
-        @return: The predicted value(s) at the input data.
-        """
-        # data needs to be shape (self.npredict, self.nfeatures)
-        assert (data.shape[1] == self.n_features)
-        n_predict = data.shape[0]
-        node_mus = np.zeros((n_predict, self.m))
-
-        for m in range(self.m):
-            tree = self.trees[m]
-            mu = self.mus[m]
-            n_idx = 0
-            for node in tree.terminalNodes:
-                y_in_node = np.all(tree.plinko(node, data), axis=1)
-                assert(np.all(node_mus[y_in_node, m] == 0.0))
-                node_mus[y_in_node, m] = mu.value[n_idx]
-                n_idx += 1
-        return node_mus
-
     def do_step(self):
         """
         Update of the configurations and mean parameters of the terminal nodes of each tree in the ensemble. Note that
@@ -765,7 +739,7 @@ class BartModel(samplers.Sampler):
         @param alpha: A tree configuration prior parameter, controlling the probability of a terminal node splitting. In
             the notation of Chipman et al. (2010).
         @param beta: A tree configuration prior parameter, controlling the probability of a terminal node splitting
-            given its depth. In the notationof Chipman et al. (2010).
+            given its depth. In the notation of Chipman et al. (2010).
         """
         super(BartModel, self).__init__()
         delattr(self, 'mcmc_samples')  # can't store values in instance of MCMCSample class for BART, so remove it
@@ -783,10 +757,8 @@ class BartModel(samplers.Sampler):
 
         # Rescale y to lie between -0.5 and 0.5
         self.ymin = self.y.min()  # store values so we can transform back when making predictions
-        self.y -= self.ymin  # minimum = 0
         self.ymax = self.y.max()
-        self.y /= self.ymax  # maximum = 1
-        self.y -= 0.5        # range is -0.5 to 0.5
+        self.y = (self.y - self.ymin) / (self.ymax - self.ymin) - 0.5
 
         # Build the ensemble of tree configurations and mu values for the terminal nodes
         self.trees = []
@@ -866,12 +838,43 @@ class BartSample(object):
         self.n_samples = X.shape[0]
 
         self.ymin = self.ytrain.min()  # needed for translating the BART output to the original data scale
-        self.ymax = (self.ytrain - self.ymin).max()
+        self.ymax = self.ytrain.max()
 
         # dictionary containing the values of the prior hyperparameters
         self.prior_info = prior_info
 
         self.samples = {}  # the MCMC samples are stored here
+
+    def predict(self, x):
+        """
+        Predict the value of the response given the input data.
+
+        @param x: The vector of predictors, an nfeatures size array.
+        @return: The predicted value(s) at the input data for each MCMC sample.
+        """
+        # data needs to be shape (self.npredict, self.nfeatures)
+        try:
+            x.size == self.n_features
+        except ValueError:
+            "Input must be a vector with n_features elements."
+
+        nmcmc = len(self.samples['sigsqr'])
+        node_mus = np.zeros(nmcmc)
+
+        for i in xrange(nmcmc):
+            for m in range(self.m):
+                tree = self.samples['BART ' + str(m+1)][i]
+                mu = self.samples['Mu ' + str(m+1)][i]
+                n_idx = 0
+                for node in tree.terminalNodes:
+                    # find which terminal node the x-value ends up in
+                    in_node = np.all(tree.plinko(node, x[np.newaxis, :]), axis=1)
+                    if in_node:
+                        node_mus[i] += mu[n_idx]  # add value of f(x) for this tree to the ensemble
+                        continue  # no need to iterate over remaining terminal nodes, since we found the right one
+                    n_idx += 1
+
+        return node_mus
 
     def predict(self, x):
         pass
