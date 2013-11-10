@@ -903,16 +903,12 @@ class BartSample(object):
                     in_node = np.all(tree.plinko(node, x[np.newaxis, :]), axis=1)
                     if in_node:
                         ypredict[i] += mu[n_idx]  # add value of f(x) for this tree to the ensemble
-                        continue  # no need to iterate over remaining terminal nodes, since we found the right one
                     n_idx += 1
 
         # need to translate predicted value to original data scale
         ypredict = self.ymin + (self.ymax - self.ymin) * (ypredict + 0.5)
 
         return ypredict
-
-    def predict(self, x):
-        pass
 
     def feature_importance(self):
         pass

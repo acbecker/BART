@@ -88,7 +88,21 @@ class SamplerTestCase(unittest.TestCase):
             self.assertTrue(np.all(mcmc_samples.samples[mu.name][0] == mu.value))
 
     def test_predict(self):
-        pass
+        # generate a single tree
+        tree, mu = build_test_data(self.X, self.true_sigsqr)
+        mu_param = BartMeanParameter('Mu 1', 1)
+        mu_param.value = mu
+        mu_map = BartStep.node_mu(tree, mu_param)  # true model values for each x
+
+        model = BartModel(self.X, tree.y, m=1)
+        bart_sample = BartSample(tree.y, 1, {}, Xtrain=self.X)
+        bart_sample.samples['sigsqr'] = [0.0]  # make sure we have one sample
+        bart_sample.samples['BART 1'] = [tree]
+        mu_transformed = (mu - bart_sample.ymin) / (bart_sample.ymax - bart_sample.ymin) - 0.5
+        bart_sample.samples['Mu 1'] = [mu_transformed]
+        for i in xrange(self.X.shape[0]):
+            ypredict = bart_sample.predict(self.X[i, :])
+            self.assertAlmostEqual(ypredict[0], mu_map[i])
 
     def test_sampler(self):
         pass
