@@ -99,9 +99,9 @@ class SamplerTestCase(unittest.TestCase):
         bart_sample.samples['BART 1'] = [tree]
         mu_transformed = (mu - bart_sample.ymin) / (bart_sample.ymax - bart_sample.ymin) - 0.5
         bart_sample.samples['Mu 1'] = [mu_transformed]
+        ypredict = bart_sample.predict(self.X)
         for i in xrange(self.X.shape[0]):
-            ypredict = bart_sample.predict(self.X[i, :])
-            self.assertAlmostEqual(ypredict[0], mu_map[i])
+            self.assertAlmostEqual(ypredict[i], mu_map[i])
 
     def test_sampler(self):
         """

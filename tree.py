@@ -899,7 +899,8 @@ class BartSample(object):
             "Input must be an array with n_features columns."
 
         nmcmc = len(self.samples['sigsqr'])
-        ypredict = np.zeros(npredict, nmcmc)
+        npredict = X.shape[0]
+        ypredict = np.zeros((npredict, nmcmc))
 
         for i in xrange(nmcmc):
             for m in range(self.m):
