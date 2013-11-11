@@ -33,7 +33,7 @@ class MCMCSample(object):
 
         :param filename: A string giving the name of an asciifile containing the MCMC samples.
         """
-        self._samples = dict()  # Empty dictionary. We will place the samples for each tracked parameter here.
+        self.samples = dict()  # Empty dictionary. We will place the samples for each tracked parameter here.
 
         if logpost is not None:
             self.logpost = logpost
@@ -55,7 +55,7 @@ class MCMCSample(object):
 
         :param name: The name of the parameter for which the samples are desired.
         """
-        return self._samples[name].copy()
+        return self.samples[name].copy()
 
     def generate_from_file(self, filename):
         """
@@ -70,9 +70,9 @@ class MCMCSample(object):
             name = file.readline()
             # Grab the MCMC output
             trace = np.genfromtxt(fname, skip_header=1)
-            if name not in self._samples:
+            if name not in self.samples:
                 # Parameter is not already in the dictionary, so add it. Otherwise do nothing.
-                self._samples[name] = trace
+                self.samples[name] = trace
         self.newaxis()
 
     def autocorr_timescale(self, trace):
@@ -93,13 +93,13 @@ class MCMCSample(object):
 
         :param name: The name of the parameter to compute the effective number of independent samples for.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Calculating effective number of samples"
 
-        traces = self._samples[name]  # Get the sampled parameter values
+        traces = self.samples[name]  # Get the sampled parameter values
         npts = traces.shape[0]
         timescale = self.autocorr_timescale(traces)
         return npts / timescale
@@ -113,14 +113,14 @@ class MCMCSample(object):
 
         :param name: The parameter name.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Plotting Trace"
             fig = plt.figure()
 
-        traces = self._samples[name]  # Get the sampled parameter values
+        traces = self.samples[name]  # Get the sampled parameter values
         ntrace = traces.shape[1]
         spN = plt.subplot(ntrace, 1, ntrace)
         spN.plot(traces[:,-1], ".", markersize=2)
@@ -142,14 +142,14 @@ class MCMCSample(object):
 
         :param name: The parameter name.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Plotting 1d PDF"
             fig = plt.figure()
 
-        traces = self._samples[name]  # Get the sampled parameter values
+        traces = self.samples[name]  # Get the sampled parameter values
         ntrace = traces.shape[1]
         for i in range(ntrace):
             sp = plt.subplot(ntrace, 1, i+1)
@@ -171,21 +171,21 @@ class MCMCSample(object):
         :param pindex2: Which element of the array to plot
         :param doShow: Call plt.show()
         """
-        if (not self._samples.has_key(name1)) or (not self._samples.has_key(name2)) :
+        if (not self.samples.has_key(name1)) or (not self.samples.has_key(name2)) :
             print "WARNING: sampler does not have", name1, name2
             return
 
-        if pindex1 >= self._samples[name1].shape[1]:
+        if pindex1 >= self.samples[name1].shape[1]:
             print "WARNING: not enough data in", name1
             return
-        if pindex2 >= self._samples[name2].shape[1]:
+        if pindex2 >= self.samples[name2].shape[1]:
             print "WARNING: not enough data in", name2
             return
 
         print "Plotting 2d PDF"
         fig    = plt.figure()
-        trace1 = self._samples[name1][:,pindex1]
-        trace2 = self._samples[name2][:,pindex2]
+        trace1 = self.samples[name1][:,pindex1]
+        trace2 = self.samples[name2][:,pindex2]
 
         # joint distribution
         axJ = fig.add_axes([0.1, 0.1, 0.7, 0.7])               # [left, bottom, width, height]
@@ -216,21 +216,21 @@ class MCMCSample(object):
         :param nbins: Number of bins along each axis for KDE
         :param doPlotStragglers: Plot individual data points outside KDE contours.  Works poorly for small samples.
         """
-        if (not self._samples.has_key(name1)) or (not self._samples.has_key(name2)) :
+        if (not self.samples.has_key(name1)) or (not self.samples.has_key(name2)) :
             print "WARNING: sampler does not have", name1, name2
             return
 
-        if pindex1 >= self._samples[name1].shape[1]:
+        if pindex1 >= self.samples[name1].shape[1]:
             print "WARNING: not enough data in", name1
             return
-        if pindex2 >= self._samples[name2].shape[1]:
+        if pindex2 >= self.samples[name2].shape[1]:
             print "WARNING: not enough data in", name2
             return
 
         print "Plotting 2d PDF w KDE"
         fig    = plt.figure()
-        trace1 = self._samples[name1][:,pindex1].real # JIC we get something imaginary?
-        trace2 = self._samples[name2][:,pindex2].real
+        trace1 = self.samples[name1][:,pindex1].real # JIC we get something imaginary?
+        trace2 = self.samples[name2][:,pindex2].real
         npts = trace1.shape[0]
         kde = scipy.stats.gaussian_kde((trace1, trace2))
         bins1 = np.linspace(trace1.min(), trace1.max(), nbins)
@@ -283,14 +283,14 @@ class MCMCSample(object):
 
         :param name: The parameter name.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Plotting autocorrelation function (this make take a while)"
             fig = plt.figure()
 
-        traces = self._samples[name]  # Get the sampled parameter values
+        traces = self.samples[name]  # Get the sampled parameter values
         mtrace = np.mean(traces, axis=0)
         ntrace = traces.shape[1]
         acorr  = self.autocorr_timescale(traces)
@@ -319,14 +319,14 @@ class MCMCSample(object):
         :param pindex: If the parameter is array-valued, then this is the index of the array that the plots are made
                        for.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Plotting parameter summary"
             fig = plt.figure()
 
-        traces = self._samples[name]
+        traces = self.samples[name]
         plot_title = name
         if traces.ndim > 1:
             # Parameter is array valued, grab the column corresponding to pindex
@@ -374,14 +374,14 @@ class MCMCSample(object):
 
         See the documentation for MCMCSample.plot_trace for further information.
         """
-        if not self._samples.has_key(name):
+        if not self.samples.has_key(name):
             print "WARNING: sampler does not have", name
             return
         else:
             print "Plotting parameter summary"
             fig = plt.figure()
 
-        traces = self._samples[name]  # Get the sampled parameter values
+        traces = self.samples[name]  # Get the sampled parameter values
         effective_nsamples = self.effective_samples(name)  # Get the effective number of independent samples
         if traces.ndim == 1:
             # Parameter is scalar valued, so this is easy
@@ -411,9 +411,9 @@ class MCMCSample(object):
                 print "99% credibility interval:", np.percentile(traces[:, i], (0.5, 99.5))
 
     def newaxis(self):
-        for key in self._samples.keys():
-            if len(self._samples[key].shape) == 1:
-                self._samples[key] = self._samples[key][:, np.newaxis]
+        for key in self.samples.keys():
+            if len(self.samples[key].shape) == 1:
+                self.samples[key] = self.samples[key][:, np.newaxis]
 
 
 class Sampler(object):
@@ -467,7 +467,7 @@ class Sampler(object):
                     # Get numpy array that will store the samples values for this parameter
                     value_array = np.empty(trace_shape)
                     # Add the array that will hold the sampled parameter values to the dictionary of samples.
-                self.mcmc_samples._samples[step._parameter.name] = value_array
+                self.mcmc_samples.samples[step._parameter.name] = value_array
 
     def start(self):
         for step in self._steps:
@@ -501,10 +501,10 @@ class Sampler(object):
             # Save the parameter value associated with each step.
             if np.isscalar(step._parameter.value):
                 # Need to treat scalar case separately
-                self.mcmc_samples._samples[step._parameter.name][current_iteration] = step._parameter.value
+                self.mcmc_samples.samples[step._parameter.name][current_iteration] = step._parameter.value
             else:
                 # Have a vector- or matrix-valued parameter
-                self.mcmc_samples._samples[step._parameter.name][current_iteration, :] = step._parameter.value
+                self.mcmc_samples.samples[step._parameter.name][current_iteration, :] = step._parameter.value
 
     def run(self, burnin, nsamples, thin=1):
         """
@@ -522,7 +522,7 @@ class Sampler(object):
         self.start()
 
         print "Using", len(self._steps), "steps in the MCMC sampler."
-        print "Obtaining samples of size", self.sample_size, "for", len(self.mcmc_samples._samples), "parameters."
+        print "Obtaining samples of size", self.sample_size, "for", len(self.mcmc_samples.samples), "parameters."
 
         # Do burn-in stage
         print "Doing burn-in stage first..."

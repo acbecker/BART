@@ -170,7 +170,7 @@ class MuTestCase(unittest.TestCase):
                                             prior_var=self.mu.prior_var)
         self.tree_param.value = tree
         self.mu.tree = self.tree_param
-        self.mu.set_starting_value(self.tree)
+        self.mu.set_starting_value()
 
     def tearDown(self):
         del self.X

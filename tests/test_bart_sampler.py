@@ -94,7 +94,6 @@ class SamplerTestCase(unittest.TestCase):
         mu_param.value = mu
         mu_map = BartStep.node_mu(tree, mu_param)  # true model values for each x
 
-        model = BartModel(self.X, tree.y, m=1)
         bart_sample = BartSample(tree.y, 1, {}, Xtrain=self.X)
         bart_sample.samples['sigsqr'] = [0.0]  # make sure we have one sample
         bart_sample.samples['BART 1'] = [tree]
@@ -105,8 +104,45 @@ class SamplerTestCase(unittest.TestCase):
             self.assertAlmostEqual(ypredict[0], mu_map[i])
 
     def test_sampler(self):
-        pass
+        """
+        Test the MCMC sampler for a BART model by comparing f(x) = E(y|x) from BART model with true value, generated
+        by Friedman's 5-d test function.
+        """
+        burnin = 1000
+        nsamples = 1000
+        samples = self.model.run(burnin, nsamples, thin=5)
 
+        # compute predicted f(x) values from BART model
+        ymodel = np.empty(self.true_ymean.size)
+        ymodel_sigma = np.empty(self.true_ymean.size)
+        in_count = 0  # number of times the true value of f(x) is within 90% probability interval of BART model samples
+        print 'Getting predicted values of f(x)...'
+        ypredicted = samples.predict(self.X)
+        ymodel = np.median(ypredicted, axis=1)
+        ymodel_sigma = np.std(ypredicted, axis=1)
+        yp_low = np.percentile(ypredicted, 0.05, axis=1)
+        yp_hi = np.percentile(ypredicted, 0.95, axis=1)
+        in_count = np.sum(np.logical_and(self.true_ymean > yp_low, self.true_ymean < yp_hi))
+
+        in_fraction = float(in_count) / self.true_ymean.size
+        print "Fraction of time true model value is within 90% probability interval for BART model:", in_fraction
+
+        plt.errorbar(self.true_ymean, ymodel, yerr=ymodel_sigma, fmt='.')
+        plt.plot(plt.xlim(), plt.xlim(), 'k-', lw=3)
+        plt.xlabel("True f(x) value")
+        plt.ylabel("Estimated f(x) value")
+        plt.show()
+        plt.close()
+
+        plt.plot(samples.samples['sigsqr'], '.')
+        plt.plot(plt.xlim(), np.array([self.true_sigsqr, self.true_sigsqr]), 'k-', lw=3)
+        plt.ylabel('Value of Variance Parameter')
+        plt.xlabel('MCMC iteration')
+        plt.show()
+        plt.close()
+
+        msg = "90% probability intervals on f(x) covered the true value less than 70% of the time."
+        self.assertGreater(in_fraction, 0.70, msg=msg)
 
 if __name__ == "__main__":
     unittest.main()
