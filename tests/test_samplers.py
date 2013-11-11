@@ -77,10 +77,10 @@ def test_addstep():
     NormSampler.start()
     NormSamples = NormSampler.mcmc_samples
     # Was this parameter added to the dictionary of samples in the NormSamples object?
-    assert NormMean.name in NormSamples._samples
-    if NormMean.name in NormSamples._samples:
+    assert NormMean.name in NormSamples.samples
+    if NormMean.name in NormSamples.samples:
         # NormMean is a scalar-value parameter. So check to make sure this is a single column array.
-        assert NormSamples._samples[NormMean.name].shape == (nsamples,)
+        assert NormSamples.samples[NormMean.name].shape == (nsamples,)
 
     # Now test step addition on vector-valued parameter
     BiNormSampler.add_step(BiNormRAM)
@@ -90,10 +90,10 @@ def test_addstep():
     BiNormSamples = BiNormSampler.mcmc_samples
 
     # Was this parameter added to the dictionary of samples in the BiNormSamples object?
-    assert NormPar.name in BiNormSamples._samples
-    if NormPar.name in BiNormSamples._samples:
+    assert NormPar.name in BiNormSamples.samples
+    if NormPar.name in BiNormSamples.samples:
         # Values of NormPar are 2-element vectors, so make sure the samples are a np.array([nsamples,2]) object.
-        assert BiNormSamples._samples[NormPar.name].shape == (nsamples, 2)
+        assert BiNormSamples.samples[NormPar.name].shape == (nsamples, 2)
 
         # TODO: TEST THE addstep METHOD FOR MATRIX-VALUED PARAMETERS
 

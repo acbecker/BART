@@ -10,7 +10,6 @@ algorithms.
 __author__ = 'Brandon C. Kelly'
 
 import numpy as np
-import math
 from misc import cholupdate_r1
 from scipy.linalg import cholesky
 
@@ -126,8 +125,6 @@ class MetroStep(Step):
         self.naccept = 0
         self.niter = 0
         self._alpha = 0.0
-        # Set starting value of log-posterior
-        self._parameter._log_posterior = self._parameter.logdensity(self._parameter.value)
 
     def report(self):
         """
@@ -151,7 +148,7 @@ class MetroStep(Step):
             - (self._parameter.logdensity(current_value) -
                self._proposal.logdensity(proposed_value, current_value, forward=False))
 
-        self._alpha = min(1.0, math.exp(alpha))
+        self._alpha = np.exp(min(0.0, alpha))
 
         unif = np.random.uniform()
 

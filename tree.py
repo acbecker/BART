@@ -105,10 +105,13 @@ class BaseTree(object):
 
         # Initialize the tree
         self.head = Node(None, None)
-        self.terminalNodes = [self.head,]
+        self.head.ybar = np.mean(y)
+        self.head.yvar = np.var(y)
+        self.head.npts = y.size
+        self.terminalNodes = [self.head]
         self.internalNodes = []
 
-    def buildUniform(self, node, alpha, beta, depth=0):
+    def buildUniform(self, node, alpha, beta, depth=0, verbose=False):
         """
         Randomly split the input node into two new nodes. This method is useful for generating a tree configuration
         using node as the trunk by drawing the split probabilities from the distribution defined by alpha and beta.
@@ -118,6 +121,7 @@ class BaseTree(object):
         @param beta: Parameter defining probability of a split as a funtion of node depth, same notation as
             Chipman et al. (2010).
         @param depth: The depth of the current node.
+        @param verbose: Be noisy?
         @return:
         """
         assert(beta > 0.0)
@@ -128,17 +132,22 @@ class BaseTree(object):
         if rand < psplit:
             feature, threshold = self.prule(node)
             if feature is None or threshold is None:
-                print "NO DATA LEFT, rejecting split"
+                if verbose:
+                    print "NO DATA LEFT, rejecting split"
                 return
             nleft, nright = self.split(node, feature, threshold)
             if (nleft is not None) and (nright is not None):
-                print "EXTENDING node", node.Id, "to depth", depth+1, "(%.2f < %.2f)" % (rand, psplit)
+                if verbose:
+                    print "EXTENDING node", node.Id, "to depth", depth+1, "(%.2f < %.2f)" % (rand, psplit)
                 self.buildUniform(nleft, alpha, beta, depth=depth+1)
                 self.buildUniform(nright, alpha, beta, depth=depth+1)
             else:
-                print "NOT EXTENDING node", node.Id, ": too few points (%d=%.2f)" % (feature, threshold)
+                if verbose:
+                    print "NOT EXTENDING node", node.Id, ": too few points (%d=%.2f)" % (feature, threshold)
         else:
-            print "NOT SPLITTING node", node.Id, ": did not pass random draw (%.2f > %.2f at depth %d)" % (rand, psplit, depth)
+            if verbose:
+                print "NOT SPLITTING node", node.Id, ": did not pass random draw (%.2f > %.2f at depth %d)" % \
+                                                     (rand, psplit, depth)
             
     def prule(self, node):
         """
@@ -299,7 +308,6 @@ class BaseTree(object):
 
         return includeX
 
-
     def filter(self, node):
         """
         Find the data points that end up in the input node by dropping them down the tree, and save the first and
@@ -319,7 +327,6 @@ class BaseTree(object):
         node.npts = np.sum(includeY)
 
         return includeX, includeY  # TODO: do we really need to return includeX?
-
 
 
 class BartTreeParameter(steps.Parameter):
@@ -454,7 +461,7 @@ class BartMeanParameter(steps.Parameter):
         self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
-    def set_starting_value(self, tree):
+    def set_starting_value(self):
         try:
             self.tree is not None
         except ValueError:
@@ -530,7 +537,8 @@ class BartVariance(steps.Parameter):
         except ValueError:
             "Parameter for tree ensemble update step is not set."
 
-        return self.random_posterior()
+        self.value = self.random_posterior()
+        return
 
     def random_posterior(self):
         """
@@ -573,7 +581,11 @@ class BartProposal(proposals.Proposal):
         # make a copy since the grow/prune operations operate on the tree object in place
         new_tree = copy.deepcopy(current_tree)
 
+        nleaves = len(new_tree.terminalNodes)
         prop = np.random.uniform()
+        if nleaves == 1:
+            prop = 0.0  # can only grow a tree with one terminal node
+
         if prop < self.pgrow:
             self._node = new_tree.grow()
             self._operation = 'grow'
@@ -583,7 +595,7 @@ class BartProposal(proposals.Proposal):
 
         return new_tree
 
-    def logdensity(self, proposed_tree, current_tree, forward):
+    def logdensity(self, current_tree, proposed_tree, forward):
         """
         The log-probability of the tree configuration proposal kernel. This includes the contribution from the prior
         distribution in the marginal log-posterior of the tree configuration. In actuality, this return the logarithm of
@@ -618,6 +630,7 @@ class BartProposal(proposals.Proposal):
         if self._operation == 'grow':
             ntnodes = float(len(current_tree.terminalNodes))
             ntparents = len(proposed_tree.get_terminal_parents())
+            ntparents = max(ntparents, 1)  # if no parents, then make ntnodes / ntparents = 1 since we have to grow
             logdensity = np.log(ntnodes / ntparents) + log_prior_ratio
         elif self._operation == 'prune':
             ntnodes = float(len(proposed_tree.terminalNodes))
@@ -686,30 +699,6 @@ class BartStep(object):
 
         return mu_map
 
-    def predict(self, data):
-        # TODO: Should move this to the BartSample class.
-        """
-        Predict the value of the response given the input data.
-
-        @param data: The array of predictors. Must have the same number of features (columns) as the training data.
-        @return: The predicted value(s) at the input data.
-        """
-        # data needs to be shape (self.npredict, self.nfeatures)
-        assert (data.shape[1] == self.n_features)
-        n_predict = data.shape[0]
-        node_mus = np.zeros((n_predict, self.m))
-
-        for m in range(self.m):
-            tree = self.trees[m]
-            mu = self.mus[m]
-            n_idx = 0
-            for node in tree.terminalNodes:
-                y_in_node = np.all(tree.plinko(node, data), axis=1)
-                assert(np.all(node_mus[y_in_node, m] == 0.0))
-                node_mus[y_in_node, m] = mu.value[n_idx]
-                n_idx += 1
-        return node_mus
-
     def do_step(self):
         """
         Update of the configurations and mean parameters of the terminal nodes of each tree in the ensemble. Note that
@@ -765,13 +754,13 @@ class BartModel(samplers.Sampler):
         @param alpha: A tree configuration prior parameter, controlling the probability of a terminal node splitting. In
             the notation of Chipman et al. (2010).
         @param beta: A tree configuration prior parameter, controlling the probability of a terminal node splitting
-            given its depth. In the notationof Chipman et al. (2010).
+            given its depth. In the notation of Chipman et al. (2010).
         """
         super(BartModel, self).__init__()
         delattr(self, 'mcmc_samples')  # can't store values in instance of MCMCSample class for BART, so remove it
 
         self.X = X
-        self.y = y
+        self.y = y.copy()
         self.n_features = X.shape[1]
         self.n_samples = X.shape[0]
 
@@ -783,10 +772,8 @@ class BartModel(samplers.Sampler):
 
         # Rescale y to lie between -0.5 and 0.5
         self.ymin = self.y.min()  # store values so we can transform back when making predictions
-        self.y -= self.ymin  # minimum = 0
         self.ymax = self.y.max()
-        self.y /= self.ymax  # maximum = 1
-        self.y -= 0.5        # range is -0.5 to 0.5
+        self.y = (self.y - self.ymin) / (self.ymax - self.ymin) - 0.5
 
         # Build the ensemble of tree configurations and mu values for the terminal nodes
         self.trees = []
@@ -806,31 +793,50 @@ class BartModel(samplers.Sampler):
 
         prior_info = {'alpha': self.alpha, 'beta': self.beta, 'prior_mean': self.mus[0].mubar,
                       'prior_var': self.mus[0].prior_var, 'lamb': self.sigsqr.lamb, 'nu': self.sigsqr.nu}
-        self.mcmc_samples = BartSample(X, y, m, prior_info)  # store MCMC samples in instance of BartSample class
+        self.mcmc_samples = BartSample(y, m, prior_info, Xtrain=X)  # store MCMC samples in instance of BartSample class
 
         self._logliks = []
 
     def _build_sampler(self):
-        # First do a Gibbs update for the variance parameter
         """
         Internal method for building the MCMC sampler. The MCMC sampler consists of a Gibbs update on the variance
         parameter, followed by a series of updates to the tree configuration and terminal node mean parameters for each
         tree in the ensemble.
         """
+        # First connect the parameters, since their updates depend on the current values of the other parameters
+        for tree, mu in zip(self.trees, self.mus):
+            tree.sigsqr = self.sigsqr
+            mu.sigsqr = self.sigsqr
+            mu.tree = tree
+
+        # First do a Gibbs update for the variance parameter
         self.add_step(steps.GibbStep(self.sigsqr))
 
         # Alternate between updating the tree configuration and then the terminal node means for each tree
         self.add_step(BartStep(self.y, self.trees, self.mus))
+
+        self.sigsqr.bart_step = self._steps[1]  # variance parameter needs to know about current value of residuals
+
+    def start(self):
+        self.sigsqr.set_starting_value()
+        for tree in self.trees:
+            tree.set_starting_value()
+        for mu in self.mus:
+            mu.set_starting_value()
+        self._allocate_arrays()
+        self._burnin_bar.maxval = self.burnin
+        self._sampler_bar.maxval = self.sample_size
 
     def _allocate_arrays(self):
         """
         Build dictionary of saved values from MCMC sampler. This dictionary is stored in an instance of BartSample
         class.
         """
-        for step in self._steps:
-            if step._parameter.track:
-                # We are saving this parameter's values as a list, so add to dictionary of samples.
-                self.mcmc_samples.samples[step._parameter.name] = []
+        self.mcmc_samples.samples[self.sigsqr.name] = []
+        for tree in self.trees:
+            self.mcmc_samples.samples[tree.name] = []
+        for mu in self.mus:
+            self.mcmc_samples.samples[mu.name] = []
 
     def save_values(self):
         """
@@ -847,7 +853,7 @@ class BartModel(samplers.Sampler):
 
 
 class BartSample(object):
-    def __init__(self, ytrain, m, prior_info, Xtrain=None):
+    def __init__(self, ytrain, m, prior_info, Xtrain=None, n_features=None):
         """
         Constructor class used to access and use the MCMC samples for a BART model. This class can be used to directly
         access the values of the BART variance, tree configurations, and means of the terminal nodes. In addition,
@@ -858,23 +864,60 @@ class BartSample(object):
         @param m: The number of tree used in the BART ensemble.
         @param prior_info: A dictionary containing the values of the prior hyperparameters.
         @param Xtrain: The array of predictors used to train the model.
+        @param n_features: The number of features (covariates) in the model. Must provide if Xtrain is not input.
         """
+        try:
+            (Xtrain is not None) or (n_features is not None)
+        except ValueError:
+            "Must provide either Xtrain or n_features"
+
         self.Xtrain = Xtrain
         self.ytrain = ytrain
         self.m = m
-        self.n_features = X.shape[1]
-        self.n_samples = X.shape[0]
+        self.n_features = Xtrain.shape[1]
+        self.n_samples = ytrain.size
 
         self.ymin = self.ytrain.min()  # needed for translating the BART output to the original data scale
-        self.ymax = (self.ytrain - self.ymin).max()
+        self.ymax = self.ytrain.max()
 
         # dictionary containing the values of the prior hyperparameters
         self.prior_info = prior_info
 
-        self.samples = {}  # the MCMC samples are stored here
+        self.samples = dict()  # Empty dictionary. We will place the MCMC samples here.
 
-    def predict(self, x):
-        pass
+    def predict(self, X):
+        """
+        Predict the value of the response given the input data for each BART model generated by the MCMC sampler.
+
+        @param X: The array of predictors, an (n_predict, n_features) size array.
+        @return: The predicted value at the input data for each MCMC sample.
+        """
+        # data needs to be shape (self.npredict, self.nfeatures)
+        try:
+            X.shape[1] == self.n_features
+        except ValueError:
+            "Input must be an array with n_features columns."
+
+        nmcmc = len(self.samples['sigsqr'])
+        npredict = X.shape[0]
+        ypredict = np.zeros((npredict, nmcmc))
+
+        for i in xrange(nmcmc):
+            for m in range(self.m):
+                tree = self.samples['BART ' + str(m+1)][i]
+                mu = self.samples['Mu ' + str(m+1)][i]
+                n_idx = 0
+                for node in tree.terminalNodes:
+                    # find which terminal node the x-value ends up in
+                    in_node = np.all(tree.plinko(node, X), axis=1)
+                    if sum(in_node) > 0:
+                        ypredict[in_node] += mu[n_idx]  # add value of f(x) for this tree to the ensemble
+                    n_idx += 1
+
+        # need to translate predicted value to original data scale
+        ypredict = self.ymin + (self.ymax - self.ymin) * (ypredict + 0.5)
+
+        return ypredict
 
     def feature_importance(self):
         pass

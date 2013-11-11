@@ -132,6 +132,7 @@ class StepTestCase(unittest.TestCase):
         nbranches = np.zeros((niter, self.mtrees))
         rsigma = np.zeros(niter)
 
+        print 'Running MCMC sampler...'
         for i in xrange(niter):
             self.bart_step.do_step()
 
@@ -165,3 +166,7 @@ class StepTestCase(unittest.TestCase):
         print nout
         msg = "Probability of number of mu(x) values outside of 95% probability range is < 1%."
         self.assertGreater(signif, 0.01, msg=msg)
+
+
+if __name__ == "__main__":
+    unittest.main()

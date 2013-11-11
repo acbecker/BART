@@ -81,7 +81,7 @@ class ProposalTestCase(unittest.TestCase):
         ntrials = 1000
         for i in xrange(ntrials):
             new_tree = self.tree_proposal.draw(current_tree)
-            logratio = self.tree_proposal.logdensity(new_tree, current_tree, True)
+            logratio = self.tree_proposal.logdensity(current_tree, new_tree, True)
             logratio = -logratio  # sign of output agrees with MetroStep.accept, reverse for convention of this test
             nleafs_new = len(new_tree.terminalNodes)
             nleafs_old = len(current_tree.terminalNodes)
