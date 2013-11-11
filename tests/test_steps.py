@@ -10,7 +10,6 @@ from scipy import stats, linalg
 import steps, priors, proposals
 import matplotlib.pyplot as plt
 from matplotlib import mlab
-from numba import autojit
 
 
 class NormalMean(steps.Parameter):
