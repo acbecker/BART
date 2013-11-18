@@ -1,1 +1,4 @@
+setupRequired("numpy")
+setupRequired("progressbar")
+setupRequired("acor")
 envAppend(PYTHONPATH, ${PRODUCT_DIR})
