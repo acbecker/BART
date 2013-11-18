@@ -54,7 +54,7 @@ class NormalProposal(Proposal):
         proposed_value = np.random.normal(current_value, self.sigma)
         return proposed_value
 
-    def logdensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value, forward):
         return 0.0  # Symmetric proposal, so just return zero.
 
 
@@ -76,7 +76,7 @@ class MultiNormalProposal(Proposal):
         proposed_value = np.random.multivariate_normal(current_value, self.covar)
         return proposed_value
 
-    def logdensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value, forward):
         return 0.0  # Symmetric proposal, so returned value doesn't matter.
 
 
@@ -98,7 +98,7 @@ class LogNormalProposal(Proposal):
         proposed_value = np.random.lognormal(math.log(current_value), self.scale)
         return proposed_value
 
-    def logdensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_valuei, forward):
         chi = (math.log(proposed_value) - math.log(current_value)) / self.scale
         log_density = -math.log(proposed_value) - chi * chi
         return log_density
@@ -124,7 +124,7 @@ class StudentProposal(Proposal):
         proposed_value = current_value + self.scale * np.random.standard_t(self.dof)
         return proposed_value
 
-    def logdensity(self, proposed_value, current_value):
+    def logdensity(self, proposed_value, current_value, forward):
         return 0.0  # Symmetric proposal, so returned value does not matter.
 
 
