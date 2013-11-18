@@ -17,6 +17,11 @@ class BaseTreeTestCases(unittest.TestCase):
 
     #
 
+    def testSlots(self):
+        self.assertTrue(hasattr(self.tree, "__slots__"))
+        self.assertFalse(hasattr(self.tree, "__dict__"))
+        self.assertFalse(hasattr(self.tree, "__weakref__"))
+
     def testBuildUniform(self):
         headId = self.tree.head.Id
         # No probability of growing a new node

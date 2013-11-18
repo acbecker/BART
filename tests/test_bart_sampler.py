@@ -19,7 +19,7 @@ class SamplerTestCase(unittest.TestCase):
 
     def setUp(self):
         # first generate a data set
-        nsamples = 1000
+        nsamples = 100
         nfeatures = 10
         self.alpha = 0.95
         self.beta = 2.0
@@ -108,8 +108,8 @@ class SamplerTestCase(unittest.TestCase):
         Test the MCMC sampler for a BART model by comparing f(x) = E(y|x) from BART model with true value, generated
         by Friedman's 5-d test function.
         """
-        burnin = 1000
-        nsamples = 1000
+        burnin = 100
+        nsamples = 100
         samples = self.model.run(burnin, nsamples, thin=5)
 
         # compute predicted f(x) values from BART model
@@ -145,4 +145,5 @@ class SamplerTestCase(unittest.TestCase):
         self.assertGreater(in_fraction, 0.70, msg=msg)
 
 if __name__ == "__main__":
-    unittest.main()
+    import cProfile
+    cProfile.run("unittest.main()", "test_bart_sampler.out")

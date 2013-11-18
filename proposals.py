@@ -40,6 +40,7 @@ class NormalProposal(Proposal):
     """
     Generate proposals from a univariate Normal distribution centered at the current value of the parameter.
     """
+    __slots__ = ["sigma"]
 
     def __init__(self, sigma):
         """
@@ -61,6 +62,7 @@ class MultiNormalProposal(Proposal):
     """
     Generate proposals from a multivariate normal distribution centered at the current value of the parameter.
     """
+    __slots__ = ["covar"]
 
     def __init__(self, covar):
         """
@@ -82,6 +84,7 @@ class LogNormalProposal(Proposal):
     """
     Generate proposals from a log-normal distribution.
     """
+    __slots__ = ["scale"]
 
     def __init__(self, scale):
         """
@@ -105,6 +108,7 @@ class StudentProposal(Proposal):
     """
     Generate proposals from a Student's t-distribution.
     """
+    __slots__ = ["dof", "scale"]
 
     def __init__(self, dof, scale):
         """

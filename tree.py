@@ -10,6 +10,12 @@ from sklearn import linear_model
 
 
 class Node(object):
+    # Memory management tool: pre-define the class attributes.
+    # Prevents the automatic creation of __dict__ and __weakref__ for each instance
+    __slots__ = ["Id", "Parent", "Left", "Right", "is_left", "depth", 
+                 "_ybar", "_yvar", "_npts", "_feature", "_threshold"]
+
+    # Incrementing Class variable
     NodeId = 0
 
     def __init__(self, parent, is_left):
@@ -87,6 +93,7 @@ class Node(object):
 
 
 class BaseTree(object):
+    __slots__ = ["X", "y", "n_features", "n_samples", "nmin", "head", "terminalNodes", "internalNodes"]
 
     def __init__(self, X, y, min_samples_leaf=5):
         """
@@ -330,6 +337,7 @@ class BaseTree(object):
 
 
 class BartTreeParameter(steps.Parameter):
+    __slots__ = ["X", "y", "value", "mtrees", "mubar", "prior_mu_var", "alpha", "beta", "sigsqr"]
 
     def __init__(self, name, X, y, mtrees, alpha=0.95, beta=2.0, prior_mu=0.0, prior_var=2.0, track=True):
         """
@@ -439,6 +447,7 @@ class BartTreeParameter(steps.Parameter):
 
 
 class BartMeanParameter(steps.Parameter):
+    __slots__ = ["mubar", "mtrees", "k", "prior_var", "tree", "sigsqr"]
 
     def __init__(self, name, mtrees, track=True):
         """
@@ -498,7 +507,7 @@ class BartMeanParameter(steps.Parameter):
 
 
 class BartVariance(steps.Parameter):
-
+    __slots__ = ["y", "nu", "q", "lamb", "bart_step"]
     def __init__(self, X, y, name='sigsqr', track=True):
         """
         Constructor for the error variance parameter in the BART model.
@@ -560,6 +569,7 @@ class BartVariance(steps.Parameter):
 
 
 class BartProposal(proposals.Proposal):
+    __slots__ = ["alpha", "beta", "pgrow", "_operation", "_node", "log_prior_ratio", "_prohibited_proposal"]
     def __init__(self, alpha=0.95, beta=2.0):
         """
         Constructor for object that generates proposed tree configurations, given the current one.
@@ -645,6 +655,7 @@ class BartProposal(proposals.Proposal):
 
 
 class BartStep(object):
+    __slots__ = ["y", "m", "resids", "trees", "mus", "_report_iter", "tree_proposal", "tree_steps"]
 
     def __init__(self, y, trees, mus, report_iter=-1):
         """
@@ -743,6 +754,9 @@ class BartStep(object):
 
 
 class BartModel(samplers.Sampler):
+    __slots__ = ["X", "y", "n_features", "n_samples", "m", "alpha", "beta", 
+                 "ymin", "ymax", "y", "trees", "mus", "sigsqr", "mcmc_samples", "_logliks"]
+
     def __init__(self, X, y, m=200, alpha=0.95, beta=2.0):
         """
         Constructor for BART model class. This class will build the BART model and run the MCMC sampler based on this
@@ -853,6 +867,7 @@ class BartModel(samplers.Sampler):
 
 
 class BartSample(object):
+    __slots__ = ["Xtrain", "ytrain", "m", "n_features", "n_samples", "ymin", "ymax", "prior_info", "samples"]
     def __init__(self, ytrain, m, prior_info, Xtrain=None, n_features=None):
         """
         Constructor class used to access and use the MCMC samples for a BART model. This class can be used to directly
@@ -931,164 +946,3 @@ class BartSample(object):
     def plot_partial_dependence(self):
         pass
 
-#### CartTree class is untested, not finished, and probably will not work. It is only left here just in case we
-#### we want to use it later.
-
-class CartTree(BaseTree, steps.Parameter):
-    # Describes the conditional distribution of y given X.  X is a
-    # vector of predictors.  Each terminal node has parameter Theta.
-    #
-    # y|X has distribution f(y|Theta).
-
-    def __init__(self, X, y, nu, lamb, mubar, a, name, track=True, alpha=0.95, beta=1.0, min_samples_leaf=5):
-        BaseTree.__init__(self, X, y, min_samples_leaf)
-
-        # Tuning parameters of the model
-        self.nu     = nu
-        self.lamb   = lamb
-        self.mubar  = mubar
-        self.a      = a
-        self.alpha  = alpha
-        self.beta   = beta
-        self.mu     = np.empty(1)
-        self.sigsqr = 1.0
-
-        # Calls set_starting_value, which requires we have member variables defined
-        steps.Parameter.__init__(self, name, track)
-
-    def set_starting_value(self):
-        """
-        Set the initial configuration of the tree, just draw from its prior distribution.
-        """
-        self.buildUniform(self.head, self.alpha, self.beta)
-
-    def logprior(self, tree):
-        """
-        Compute the log-prior for a proposed tree model. This assumes that the only difference between the input
-        tree and self is in the structure of the tree nodes. The prior distribution is assumed to be the same.
-
-        @param tree: The proposed tree.
-        @return: The log-prior density of tree.
-        """
-        logprior = 0.0
-        # first get prior for terminal nodes
-        for node in tree.terminalNodes:
-            # probability of not splitting
-            logprior += np.log(1.0 - self.alpha / (1.0 + node.depth) ** self.beta)
-
-        # now get contribution from interior nodes
-        for node in tree.internalNodes:
-            # probability of splitting this node
-            logprior += np.log(self.alpha) - self.beta * np.log(1.0 + node.depth)
-
-            # get number of features and data points that are available for the splitting rule
-            fxl, fyl = tree.filter(node)
-            nfeatures = np.sum(np.sum(fxl, axis=0) > 1)  # need at least one data point for a split on a feature
-            npts = node.npts
-            # probability of split is discrete uniform over set of available features and data points
-            logprior += -np.log(nfeatures) - np.log(npts)
-
-        return logprior
-
-    # NOTE: This part would likely benefit from numba or cython
-    def loglik(self, tree=None):
-        """
-        Compute the marginal log-likelihood for a proposed tree model. This assumes that the only difference between the
-        input tree and self is in the structure of the tree nodes. The prior and data are assumed to be the same. Note
-        that the return value is the log-likelihood after marginalizing over mean value parameters in each terminal
-        node.
-
-        @param tree: The proposed tree.
-        @return: The log-likelihood of tree.
-        """
-        if tree is None:
-            tree = self
-
-        lnlike = 0.0
-
-        # Precalculate terms
-        t2  = np.log((self.nu * self.lamb)**(0.5 * self.nu))
-        t4b = gammaln(0.5 * self.nu)
-
-        # Random draws for mean-variance shift model.  NOTE: these are
-        # unncessary, these distributions are marginalized over.
-        #sigsq   = stats.invgamma.rvs(0.5 * self.nu, scale = 0.5 * self.nu * self.lamb)
-        #mui     = stats.norm.rvs(self.mubar, scale = sigsq / self.a)
-
-        for node in tree.terminalNodes:
-            fxl, fyl = tree.filter(node)
-            if node.npts == 0:
-                # Damn, this should not happen.
-                # DEBUG ME
-                continue
-
-            ymean = node.ybar
-            yvar = node.yvar
-            npts = node.npts
-
-            # Terms that depend on the data moments
-            si = (npts - 1) * yvar
-            ti = (npts * self.a) / (npts + self.a) * (ymean - self.mubar)**2
-
-            # Calculation of the log likelihood (Chipman Eq 14)
-            t1 = -0.5 * npts * np.log(np.pi)
-            t3 = +0.5 * np.log(self.a / (npts + self.a))
-            t4 = gammaln(0.5 * (npts + self.nu)) - t4b
-            t5 = -0.5 * (npts + self.nu) * np.log(si + ti + self.nu * self.lamb)
-            lnlike += t1 + t2 + t3 + t4 + t5
-            #print npts, ymean, yvar, lnlike
-
-        return lnlike
-
-    def logdensity(self, tree):
-        loglik = self.loglik(tree)
-        return loglik  # ignore prior contribution since factors cancel and we account for this in BartProposal class
-
-    def update_mu(self):
-        """
-        Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
-        current tree configuration, variance (sigma ** 2), and data.
-        """
-        self.mu = np.empty(len(self.terminalNodes))
-        n_idx = 0
-        for node in self.terminalNodes:
-            x_in_node, y_in_node = self.filter(node)  # boolean values
-            if node.npts == 0:
-                # Damn, this should not happen.
-                # DEBUG ME
-                continue
-            ny_in_node = node.npts
-            ymean_in_node = node.ybar
-
-            post_var = 1.0 / (1.0 / self.prior_mu_var + ny_in_node / self.sigsqr)
-            post_mean = post_var * ny_in_node * ymean_in_node / self.sigsqr
-
-            self.mu[n_idx] = np.random.normal(post_mean, np.sqrt(post_var))
-            n_idx += 1
-
-
-if __name__ == "__main__":
-    nsamples  = 1000
-    nfeatures = 20
-    X    = np.random.random((nsamples, nfeatures)) - 0.5
-    y    = np.random.random((nsamples)) - 0.5
-    tree = CartTree(X, y, nu=0.1, lamb=2/0.1, mubar=np.mean(y), a=1.0, name=None, alpha=0.99, beta=1.0/np.log(nsamples))
-    prop = CartProposal()
-    tree.printTree(tree.head)
-    #for i in range(10000):
-    #    prop(tree)
-    #    print tree.loglik()
-
-    print "Terminal", [x.Id for x in tree.terminalNodes]
-    print "Internal", [x.Id for x in tree.internalNodes]
-
-    tree = BartTrees(X, y)
-    #tree.calcResids()
-    npredict = 70
-    Xp   = np.random.random((npredict, nfeatures)) - 0.5
-    tree.predict(Xp)
-
-    #for i in range(10):
-    #    tree.regressionLnlike()
-
-    

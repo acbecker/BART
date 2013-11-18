@@ -16,6 +16,7 @@ class Prior(object):
 
     This class is merely a base class and should never be instantiated.
     """
+    __slots__ = ["temperature"]
 
     def __init__(self, temperature=1.0):
         """
@@ -56,6 +57,7 @@ class Normal(Prior):
     """
     A normal prior.
     """
+    __slots__ = ["mu", "variance", "sigma"]
 
     def __init__(self, mu, variance, temperature=1.0):
         """
@@ -81,6 +83,7 @@ class ScaledInvChiSqr(Prior):
     """
     A scaled inverse-chi-square prior object.
     """
+    __slots__ = ["dof", "ssqr"]
 
     def __init__(self, dof, ssqr, temperature=1.0):
         """

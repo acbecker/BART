@@ -3,6 +3,12 @@ import numpy as np
 from tree import Node
 
 class NodeTestCases(unittest.TestCase):
+    def testSlots(self):
+        head = Node(None, None)
+        self.assertTrue(hasattr(head, "__slots__"))
+        self.assertFalse(hasattr(head, "__dict__"))
+        self.assertFalse(hasattr(head, "__weakref__"))
+
     def testParent(self):
         head = Node(None, None)
         self.assertTrue(head.Parent is None)

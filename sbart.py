@@ -4,12 +4,14 @@ from .tree import BaseTree
 from .tree import BartTrees
 
 class AdjacencyMatrix(object):
+    __slots__ = ["distances"]
     def __init__(self, distances):
         self.distances = distances
     def makeMatrix(self, i, nneighbors):
         pass
 
 class InversePowerAdjacencyMatrix(AdjacencyMatrix):
+    __slots__ = ["power"]
     def __init__(self, distances, power):
         AdjacencyMatrix.__init__(distances)
 
@@ -24,6 +26,7 @@ class InversePowerAdjacencyMatrix(AdjacencyMatrix):
 
 
 class ExponentialAdjacencyMatrix(AdjacencyMatrix):
+    __slots__ = ["rdist", "power"]
     def __init__(self, distances, rdist, power):
         AdjacencyMatrix.__init__(distances)
 
@@ -59,6 +62,9 @@ class SBart(object):
     c2 = 2 x n_samples_y
 
     """
+    __slots__ = ["Z", "V", "W", "x", "nmin", 
+                 "n_features1", "n_samples_x", "n_samples_y", "n_features2",
+                 "rho", "dist1", "dist2"]
     def __init__(self, Z, V, W, x, rho, 
                  c1=None, c2=None, 
                  min_samples_leaf=5):

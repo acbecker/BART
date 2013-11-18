@@ -20,6 +20,7 @@ class Parameter(object):
     Instead, it is meant as a prototype for one to derive parameter classes from. As a result, it contains
     several methods that are expected to be overridden.
     """
+    __slots__ = ["name", "track", "_temperature", "_log_posterior", "value"]
 
     def __init__(self, name, track, temperature=1.0):
         """
@@ -68,6 +69,7 @@ class Step(object):
     Metropolis-Hastings update), or create his/her own steps derived from Step. The methods of Step are empty
     and should be overridden in derived classes.
     """
+    __slots__ = ["_parameter"]
 
     def __init__(self, parameter):
         """
@@ -110,6 +112,7 @@ class MetroStep(Step):
     smaller. MetroStep objects require the user to supply a proposal object, and that the LogDensity method
     of the parameter object to be defined.
     """
+    __slots__ = ["_proposal", "report_iter", "naccept", "niter", "_alpha"]
 
     def __init__(self, parameter, proposal, report_iter):
         """
@@ -180,6 +183,7 @@ class AdaptiveMetro(MetroStep):
     Reference: Robust Adaptive Metropolis Algorithm with Coerced Acceptance Rate,
 	M. Vihola, 2012, Statistics & Computing, 22, 997-1008
     """
+    __slots__ = ["_covar", "target_rate", "_maxiter", "_gamma", "_cholesky_factor"]
 
     def __init__(self, parameter, proposal, covar, target_rate, maxiter, report_iter=-1):
         """
