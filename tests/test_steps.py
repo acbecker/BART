@@ -278,6 +278,7 @@ def test_AdaptiveMetro():
     # Now instantiate the prior and parameter object
     prior = priors.Uninformative()
     NormPar = BivariateNormalMean(data, covar, prior, "mu", True, 1.0)
+    NormPar.set_starting_value()
 
     # Create proposal object for MHA proposals
     prop_covar = np.identity(2)

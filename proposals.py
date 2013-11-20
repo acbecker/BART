@@ -98,7 +98,7 @@ class LogNormalProposal(Proposal):
         proposed_value = np.random.lognormal(math.log(current_value), self.scale)
         return proposed_value
 
-    def logdensity(self, proposed_value, current_valuei, forward):
+    def logdensity(self, proposed_value, current_value, forward=True):
         chi = (math.log(proposed_value) - math.log(current_value)) / self.scale
         log_density = -math.log(proposed_value) - chi * chi
         return log_density
