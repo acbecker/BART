@@ -8,6 +8,13 @@ import proposals
 import copy
 from sklearn import linear_model
 
+# Deprecation warnings
+import warnings
+def fxn():
+    warnings.warn("deprecated", DeprecationWarning)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    fxn()
 
 class Node(object):
     # Memory management tool: pre-define the class attributes.
@@ -447,7 +454,7 @@ class BartTreeParameter(steps.Parameter):
 
 
 class BartMeanParameter(steps.Parameter):
-    __slots__ = ["mubar", "mtrees", "k", "prior_var", "tree", "sigsqr"]
+    __slots__ = ["mubar", "mtrees", "k", "prior_var", "treeparam", "sigsqr"]
 
     def __init__(self, name, mtrees, track=True):
         """
@@ -467,12 +474,12 @@ class BartMeanParameter(steps.Parameter):
 
         # Must set these manually before running the MCMC sampler. Necessary because Gibbs updates need to know the
         # values of the other parameters.
-        self.tree = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
+        self.treeparam = None  # the instance of BartTreeParameter class corresponding to this mean parameter instance
         self.sigsqr = None  # the instance of BartVariance class for this model
 
     def set_starting_value(self):
         try:
-            self.tree is not None
+            self.treeparam is not None
         except ValueError:
             "Tree configuration is not set."
         try:
@@ -487,9 +494,9 @@ class BartMeanParameter(steps.Parameter):
         Update the mean y parameter value for each terminal node by drawing from its distribution, conditional on the
         current tree configuration, variance (sigma ** 2), and data.
         """
-        mu = np.empty(len(self.tree.value.terminalNodes))
+        mu = np.empty(len(self.treeparam.value.terminalNodes))
         n_idx = 0
-        for node in self.tree.value.terminalNodes:
+        for node in self.treeparam.value.terminalNodes:
             if node.npts == 0:
                 # Damn, this should not happen.
                 # DEBUG ME
@@ -818,10 +825,10 @@ class BartModel(samplers.Sampler):
         tree in the ensemble.
         """
         # First connect the parameters, since their updates depend on the current values of the other parameters
-        for tree, mu in zip(self.trees, self.mus):
-            tree.sigsqr = self.sigsqr
+        for treeparam, mu in zip(self.trees, self.mus):
+            treeparam.sigsqr = self.sigsqr
             mu.sigsqr = self.sigsqr
-            mu.tree = tree
+            mu.treeparam = treeparam
 
         # First do a Gibbs update for the variance parameter
         self.add_step(steps.GibbStep(self.sigsqr))

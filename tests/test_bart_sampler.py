@@ -51,7 +51,7 @@ class SamplerTestCase(unittest.TestCase):
         for tree, mu in zip(self.model.trees, self.model.mus):
             self.assertTrue(tree.sigsqr == self.model.sigsqr)
             self.assertTrue(mu.sigsqr == self.model.sigsqr)
-            self.assertTrue(mu.tree == tree)
+            self.assertTrue(mu.treeparam == tree)
 
     def test_startsampler(self):
         self.model.start()
@@ -109,7 +109,7 @@ class SamplerTestCase(unittest.TestCase):
         by Friedman's 5-d test function.
         """
         burnin = 100
-        nsamples = 100
+        nsamples = 1000
         samples = self.model.run(burnin, nsamples, thin=5)
 
         # compute predicted f(x) values from BART model

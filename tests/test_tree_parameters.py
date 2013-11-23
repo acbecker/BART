@@ -169,7 +169,7 @@ class MuTestCase(unittest.TestCase):
         self.tree_param = BartTreeParameter('tree', self.X, self.y, self.mtrees, prior_mu=self.mu.mubar,
                                             prior_var=self.mu.prior_var)
         self.tree_param.value = tree
-        self.mu.tree = self.tree_param
+        self.mu.treeparam = self.tree_param
         self.mu.set_starting_value()
 
     def tearDown(self):
@@ -187,7 +187,7 @@ class MuTestCase(unittest.TestCase):
             mu_draws[i, :] = self.mu.random_posterior()
 
         l_idx = 0
-        for leaf in self.mu.tree.value.terminalNodes:
+        for leaf in self.mu.treeparam.value.terminalNodes:
             ny = leaf.npts
             ybar = leaf.ybar
             post_var = 1.0 / (1.0 / self.mu.prior_var + ny / self.mu.sigsqr.value)
@@ -244,24 +244,25 @@ class TreeTestCase(unittest.TestCase):
         self.mu.sigsqr.bart_step = SimpleBartStep()
         self.mu.sigsqr.value = self.true_sigsqr
 
-        self.tree = BartTreeParameter('tree', self.X, self.y, self.mtrees, prior_mu=self.mu.mubar,
-            prior_var=self.mu.prior_var)
-        self.tree.value = tree
-        self.tree.sigsqr = self.mu.sigsqr
-        self.mu.tree = self.tree
+        self.tree_param = BartTreeParameter('tree', self.X, self.y, self.mtrees, prior_mu=self.mu.mubar,
+                                            prior_var=self.mu.prior_var)
+        self.tree_param.value = tree
+        self.tree_param.sigsqr = self.mu.sigsqr
+        self.mu.treeparam = self.tree_param
+        self.mu.set_starting_value()
 
     def tearDown(self):
         del self.X
         del self.y
         del self.mu
-        del self.tree
+        del self.tree_param
 
     def test_logdens(self):
         loglik_direct = 0.0
         mugrid = np.linspace(-5.0, 5.0, 1001)
-        for leaf in self.tree.value.terminalNodes:
+        for leaf in self.mu.treeparam.value.terminalNodes:
             # compute log-likelihood numerically
-            in_node = self.tree.value.filter(leaf)[1]  # find the data that end up in this node
+            in_node = self.mu.treeparam.value.filter(leaf)[1]  # find the data that end up in this node
             lik = 1.0
             for i in xrange(leaf.npts):
                 lik *= stats.distributions.norm(self.y[in_node][i], np.sqrt(self.true_sigsqr)).pdf(mugrid)
@@ -270,7 +271,7 @@ class TreeTestCase(unittest.TestCase):
             loglik_direct += np.log(integrate.simps(lik, mugrid))
 
         # make sure numerical and analytical calculation agree
-        loglik = self.tree.logdensity(self.tree.value)
+        loglik = self.mu.treeparam.logdensity(self.mu.treeparam.value)
         frac_diff = np.abs(loglik_direct - loglik) / np.abs(loglik)
         tree_msg = "Fractional difference between numerical calculation of tree loglik and analytical calculation is" \
             + " greater than 1%"

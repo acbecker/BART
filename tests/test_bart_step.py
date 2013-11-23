@@ -58,7 +58,7 @@ class StepTestCase(unittest.TestCase):
             tree_param = BartTreeParameter('tree ' + str(id), self.X, self.y, self.mtrees, self.alpha, self.beta,
                                           mean_param.mubar, mean_param.prior_var)
             tree_param.value = tree
-            mean_param.tree = tree_param  # this tree parameter, mu needs to know about it for the Gibbs sampler
+            mean_param.treeparam = tree_param  # this tree parameter, mu needs to know about it for the Gibbs sampler
             tree_param.sigsqr = self.sigsqr
 
             # update moments of y-values in each terminal node since we transformed the data
@@ -106,7 +106,7 @@ class StepTestCase(unittest.TestCase):
         for leaf in self.bart_step.trees[0].value.terminalNodes:
             ybar_old = leaf.ybar
             in_node = self.bart_step.trees[0].value.filter(leaf)
-            mu_leaf = self.bart_step.mus[0].tree.value.terminalNodes[n_idx]
+            mu_leaf = self.bart_step.mus[0].treeparam.value.terminalNodes[n_idx]
             self.assertAlmostEqual(leaf.ybar, mu_leaf.ybar)
             self.assertNotAlmostEqual(leaf.ybar, ybar_old)
             n_idx += 1

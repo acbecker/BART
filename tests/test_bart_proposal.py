@@ -36,7 +36,7 @@ class ProposalTestCase(unittest.TestCase):
         self.tree = BartTreeParameter('tree', self.X, self.y, self.mtrees, self.alpha, self.beta,
                                       self.mu.mubar, self.mu.prior_var)
         self.tree.value = tree
-        self.mu.tree = self.tree
+        self.mu.treeparam = self.tree
 
         # update moments of y-values in each terminal node since we transformed the data
         for leaf in self.tree.value.terminalNodes:
